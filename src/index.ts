@@ -62,6 +62,10 @@ app.use('/public/forms', publicFormsLimiter);
 // ---------- Static widget (lead form) ----------
 const widgetPath = path.join(__dirname, '..', 'public', 'widget');
 app.use('/widget', express.static(widgetPath));
+const adminPath = path.join(__dirname, '..', 'public', 'admin');
+app.use('/admin', express.static(adminPath));
+
+
 
 // ---------- Health check ----------
 app.get('/health', (_req, res) => {
