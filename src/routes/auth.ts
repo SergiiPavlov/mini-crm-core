@@ -1,6 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import { z, ZodError } from 'zod';
 import prisma from '../db/client';
 import { AuthRequest } from '../types/auth';
 import { requireAuth } from '../middleware/auth';
@@ -14,15 +15,22 @@ function signToken(payload: { userId: number; email: string; role: string; proje
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
+const registerOwnerSchema = z.object({
+  email: z.string().email('Valid email is required'),
+  password: z.string().min(6, 'Password must be at least 6 characters'),
+  projectSlug: z.string().min(1, 'projectSlug is required'),
+});
+
+const loginSchema = z.object({
+  email: z.string().email('Valid email is required'),
+  password: z.string().min(1, 'password is required'),
+});
+
 // POST /auth/register-owner
 // Body: { email, password, projectSlug }
 router.post('/register-owner', async (req, res) => {
   try {
-    const { email, password, projectSlug } = req.body;
-
-    if (!email || !password || !projectSlug) {
-      return res.status(400).json({ error: 'email, password and projectSlug are required' });
-    }
+    const { email, password, projectSlug } = registerOwnerSchema.parse(req.body);
 
     const project = await prisma.project.findUnique({
       where: { slug: projectSlug },
@@ -67,8 +75,16 @@ router.post('/register-owner', async (req, res) => {
       },
       token,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in /auth/register-owner', error);
+
+    if (error instanceof ZodError) {
+      return res.status(400).json({
+        error: 'Validation error',
+        details: error.errors,
+      });
+    }
+
     return res.status(500).json({ error: 'Failed to register owner' });
   }
 });
@@ -77,11 +93,7 @@ router.post('/register-owner', async (req, res) => {
 // Body: { email, password }
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'email and password are required' });
-    }
+    const { email, password } = loginSchema.parse(req.body);
 
     const user = await prisma.user.findUnique({
       where: { email },
@@ -113,8 +125,16 @@ router.post('/login', async (req, res) => {
       },
       token,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error in /auth/login', error);
+
+    if (error instanceof ZodError) {
+      return res.status(400).json({
+        error: 'Validation error',
+        details: error.errors,
+      });
+    }
+
     return res.status(500).json({ error: 'Failed to login' });
   }
 });
