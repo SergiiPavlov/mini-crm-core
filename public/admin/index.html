@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="uk">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mini CRM Admin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        background: #f1f5f9;
+        color: #0f172a;
+      }
+      .app-shell {
+        display: flex;
+        flex-direction: column;
+        min-height: 100vh;
+      }
+      header {
+        background: #0f172a;
+        color: #e5e7eb;
+        padding: 12px 20px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      header h1 {
+        margin: 0;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      header .user-info {
+        font-size: 13px;
+        opacity: 0.9;
+      }
+      main {
+        flex: 1;
+        max-width: 1120px;
+        margin: 16px auto 24px;
+        padding: 0 12px;
+        width: 100%;
+      }
+      .card {
+        background: #ffffff;
+        border-radius: 10px;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+        padding: 16px 18px;
+      }
+      .login-title {
+        margin-top: 0;
+        margin-bottom: 12px;
+        font-size: 18px;
+        font-weight: 600;
+      }
+      .field {
+        margin-bottom: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+      label {
+        font-size: 13px;
+        color: #4b5563;
+      }
+      input {
+        border-radius: 8px;
+        border: 1px solid #cbd5e1;
+        padding: 8px 10px;
+        font-size: 14px;
+        font-family: inherit;
+      }
+      input:focus {
+        outline: none;
+        border-color: #0ea5e9;
+        box-shadow: 0 0 0 1px rgba(14, 165, 233, 0.25);
+      }
+      button {
+        border-radius: 999px;
+        border: none;
+        padding: 8px 16px;
+        font-size: 14px;
+        font-weight: 500;
+        cursor: pointer;
+        background: #0ea5e9;
+        color: white;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      button[disabled] {
+        opacity: 0.6;
+        cursor: default;
+      }
+      .btn-secondary {
+        background: #e5e7eb;
+        color: #111827;
+      }
+      .login-actions {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-top: 4px;
+      }
+      .status {
+        font-size: 13px;
+        margin-top: 8px;
+      }
+      .status.error {
+        color: #b91c1c;
+      }
+      .status.ok {
+        color: #15803d;
+      }
+      .tabs {
+        margin-top: 16px;
+        margin-bottom: 8px;
+        display: inline-flex;
+        border-radius: 999px;
+        background: #e5e7eb;
+        padding: 2px;
+      }
+      .tab-btn {
+        border-radius: 999px;
+        border: none;
+        padding: 6px 14px;
+        font-size: 13px;
+        cursor: pointer;
+        background: transparent;
+        color: #4b5563;
+      }
+      .tab-btn.active {
+        background: #ffffff;
+        color: #0f172a;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, 0.18);
+      }
+      .table-wrap {
+        margin-top: 12px;
+        overflow-x: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+      }
+      thead {
+        background: #f8fafc;
+      }
+      th, td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #e5e7eb;
+        text-align: left;
+        vertical-align: top;
+      }
+      th {
+        font-weight: 600;
+        color: #475569;
+        white-space: nowrap;
+      }
+      tbody tr:hover {
+        background: #f9fafb;
+      }
+      .badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        background: #e0f2fe;
+        color: #0369a1;
+      }
+      .status-select {
+        border-radius: 999px;
+        border: 1px solid #cbd5e1;
+        padding: 2px 8px;
+        font-size: 11px;
+        background: #ffffff;
+      }
+      .muted {
+        color: #9ca3af;
+        font-size: 12px;
+      }
+      .pill {
+        border-radius: 999px;
+        padding: 2px 8px;
+        background: #f3f4f6;
+        font-size: 11px;
+      }
+      @media (max-width: 640px) {
+        header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 4px;
+        }
+        main {
+          margin-top: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header>
+        <h1>Mini CRM Admin</h1>
+        <div class="user-info" id="user-info">Не авторизовано</div>
+      </header>
+      <main>
+        <div class="card" id="login-card">
+          <h2 class="login-title">Вхід до CRM</h2>
+          <form id="login-form">
+            <div class="field">
+              <label for="email">Email</label>
+              <input id="email" name="email" type="email" autocomplete="username" required />
+            </div>
+            <div class="field">
+              <label for="password">Пароль</label>
+              <input id="password" name="password" type="password" autocomplete="current-password" required />
+            </div>
+            <div class="login-actions">
+              <button type="submit" id="login-btn">Увійти</button>
+              <button type="button" class="btn-secondary" id="logout-btn" style="display:none;">Вийти</button>
+            </div>
+            <div class="status" id="login-status"></div>
+          </form>
+        </div>
+
+        <div class="card" id="data-card" style="margin-top: 16px; display:none;">
+          <div class="tabs">
+            <button class="tab-btn active" data-tab="cases">Звернення (Cases)</button>
+            <button class="tab-btn" data-tab="contacts">Контакти (Contacts)</button>
+          </div>
+
+          <div id="cases-view">
+            <div class="muted">Показуються останні звернення по поточному проєкту користувача.</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Статус</th>
+                    <th>Заголовок</th>
+                    <th>Контакт</th>
+                    <th>Джерело</th>
+                    <th>Створено</th>
+                  </tr>
+                </thead>
+                <tbody id="cases-tbody">
+                  <tr><td colspan="5" class="muted">Немає даних</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="contacts-view" style="display:none;">
+            <div class="muted">Контакти, привʼязані до поточного проєкту користувача.</div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Імʼя</th>
+                    <th>Email</th>
+                    <th>Телефон</th>
+                    <th>Створено</th>
+                  </tr>
+                </thead>
+                <tbody id="contacts-tbody">
+                  <tr><td colspan="4" class="muted">Немає даних</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      (function () {
+        var apiBase = window.location.origin;
+        var tokenKey = 'mini-crm-admin-token';
+        var CASE_STATUSES = ['new', 'in_progress', 'done'];
+
+        var loginForm = document.getElementById('login-form');
+        var loginBtn = document.getElementById('login-btn');
+        var logoutBtn = document.getElementById('logout-btn');
+        var loginStatus = document.getElementById('login-status');
+        var userInfoEl = document.getElementById('user-info');
+        var dataCard = document.getElementById('data-card');
+        var casesTbody = document.getElementById('cases-tbody');
+        var contactsTbody = document.getElementById('contacts-tbody');
+        var loginCard = document.getElementById('login-card');
+
+        var tabs = document.querySelectorAll('.tab-btn');
+        var casesView = document.getElementById('cases-view');
+        var contactsView = document.getElementById('contacts-view');
+
+        function setStatus(message, isError) {
+          loginStatus.textContent = message || '';
+          loginStatus.className = 'status' + (isError ? ' error' : message ? ' ok' : '');
+        }
+
+        function setUserInfo(user) {
+          if (!user) {
+            userInfoEl.textContent = 'Не авторизовано';
+            return;
+          }
+          userInfoEl.textContent =
+            user.email + ' · роль: ' + user.role + ' · проєкт #' + user.projectId;
+        }
+
+        function getToken() {
+          return window.localStorage.getItem(tokenKey);
+        }
+
+        function setToken(token) {
+          if (token) {
+            window.localStorage.setItem(tokenKey, token);
+          } else {
+            window.localStorage.removeItem(tokenKey);
+          }
+        }
+
+        function authedFetch(path, options) {
+          var token = getToken();
+          if (!token) {
+            return Promise.reject(new Error('No token'));
+          }
+          var headers = Object.assign(
+            { 'Content-Type': 'application/json' },
+            (options && options.headers) || {}
+          );
+          headers['Authorization'] = 'Bearer ' + token;
+          return fetch(apiBase + path, Object.assign({}, options, { headers: headers }));
+        }
+
+        function formatDate(iso) {
+          if (!iso) return '';
+          try {
+            var d = new Date(iso);
+            if (Number.isNaN(d.getTime())) return iso;
+            return d.toLocaleString();
+          } catch (e) {
+            return iso;
+          }
+        }
+
+        function renderCases(cases) {
+          if (!Array.isArray(cases) || cases.length === 0) {
+            casesTbody.innerHTML = '<tr><td colspan="5" class="muted">Немає даних</td></tr>';
+            return;
+          }
+          var rows = cases
+            .map(function (c) {
+              var contact = c.contact || {};
+              var contactStr =
+                [contact.name, contact.email, contact.phone].filter(Boolean).join(' · ') ||
+                '<span class="muted">нема даних</span>';
+              var status = c.status || 'new';
+              var source = c.source || '–';
+
+              var statuses = CASE_STATUSES.slice();
+              if (status && statuses.indexOf(status) === -1) {
+                statuses.push(status);
+              }
+
+              var selectHtml =
+                '<select class="status-select" data-case-id="' +
+                c.id +
+                '">' +
+                statuses
+                  .map(function (s) {
+                    var selected = s === status ? ' selected' : '';
+                    return '<option value="' + s + '"' + selected + '>' + s + '</option>';
+                  })
+                  .join('') +
+                '</select>';
+
+              return (
+                '<tr>' +
+                '<td>' + selectHtml + '</td>' +
+                '<td>' +
+                (c.title || '') +
+                (c.description ? '<div class="muted">' + c.description + '</div>' : '') +
+                '</td>' +
+                '<td>' + contactStr + '</td>' +
+                '<td><span class="pill">' + source + '</span></td>' +
+                '<td>' + formatDate(c.createdAt) + '</td>' +
+                '</tr>'
+              );
+            })
+            .join('');
+          casesTbody.innerHTML = rows;
+
+          var selects = casesTbody.querySelectorAll('.status-select');
+          selects.forEach(function (sel) {
+            sel.addEventListener('change', function () {
+              var idAttr = sel.getAttribute('data-case-id');
+              var id = Number(idAttr);
+              if (!idAttr || Number.isNaN(id)) {
+                console.warn('Invalid case id on select', idAttr);
+                return;
+              }
+              var newStatus = sel.value;
+              setStatus('Оновлення статусу кейсу...', false);
+
+              authedFetch('/cases/' + id, {
+                method: 'PATCH',
+                body: JSON.stringify({ status: newStatus }),
+              })
+                .then(function (res) {
+                  if (!res.ok) {
+                    return res
+                      .json()
+                      .catch(function () {
+                        return { error: 'Failed to update case' };
+                      })
+                      .then(function (data) {
+                        throw new Error(data.error || 'Failed to update case');
+                      });
+                  }
+                  return res.json();
+                })
+                .then(function () {
+                  setStatus('Статус кейсу оновлено', false);
+                  loadData();
+                })
+                .catch(function (err) {
+                  console.error('Failed to update case', err);
+                  setStatus(err.message || 'Не вдалося оновити статус кейсу', true);
+                });
+            });
+          });
+        }
+
+        function renderContacts(contacts) {
+          if (!Array.isArray(contacts) || contacts.length === 0) {
+            contactsTbody.innerHTML = '<tr><td colspan="4" class="muted">Немає даних</td></tr>';
+            return;
+          }
+          var rows = contacts
+            .map(function (c) {
+              return (
+                '<tr>' +
+                '<td>' + (c.name || '<span class="muted">Без імені</span>') + '</td>' +
+                '<td>' + (c.email || '<span class="muted">–</span>') + '</td>' +
+                '<td>' + (c.phone || '<span class="muted">–</span>') + '</td>' +
+                '<td>' + formatDate(c.createdAt) + '</td>' +
+                '</tr>'
+              );
+            })
+            .join('');
+          contactsTbody.innerHTML = rows;
+        }
+
+        function loadData() {
+          Promise.all([
+            authedFetch('/cases').then(function (res) {
+              if (!res.ok) throw new Error('Failed to load cases');
+              return res.json();
+            }),
+            authedFetch('/contacts').then(function (res) {
+              if (!res.ok) throw new Error('Failed to load contacts');
+              return res.json();
+            }),
+          ])
+            .then(function (results) {
+              renderCases(results[0]);
+              renderContacts(results[1]);
+            })
+            .catch(function (err) {
+              console.error('Failed to load data', err);
+              setStatus('Не вдалося завантажити дані. Перевірте токен / права доступу.', true);
+            });
+        }
+
+        tabs.forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            tabs.forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+
+            var tab = btn.getAttribute('data-tab');
+            if (tab === 'cases') {
+              casesView.style.display = '';
+              contactsView.style.display = 'none';
+            } else {
+              casesView.style.display = 'none';
+              contactsView.style.display = '';
+            }
+          });
+        });
+
+        loginForm.addEventListener('submit', function (e) {
+          e.preventDefault();
+          setStatus('', false);
+          loginBtn.disabled = true;
+          var email = (document.getElementById('email')).value;
+          var password = (document.getElementById('password')).value;
+
+          fetch(apiBase + '/auth/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email, password: password }),
+          })
+            .then(function (res) {
+              if (!res.ok) {
+                return res.json().catch(function () {
+                  return { error: 'Login failed' };
+                }).then(function (data) {
+                  throw new Error(data.error || 'Login failed');
+                });
+              }
+              return res.json();
+            })
+            .then(function (data) {
+              setToken(data.token);
+              setUserInfo(data.user);
+              setStatus('Успішний вхід', false);
+              dataCard.style.display = '';
+              logoutBtn.style.display = 'inline-flex';
+              loadData();
+            })
+            .catch(function (err) {
+              console.error('Login error', err);
+              setToken(null);
+              setUserInfo(null);
+              dataCard.style.display = 'none';
+              logoutBtn.style.display = 'none';
+              setStatus(err.message || 'Помилка входу', true);
+            })
+            .finally(function () {
+              loginBtn.disabled = false;
+            });
+        });
+
+        logoutBtn.addEventListener('click', function () {
+          setToken(null);
+          setUserInfo(null);
+          dataCard.style.display = 'none';
+          logoutBtn.style.display = 'none';
+          setStatus('Вийшли з системи', false);
+        });
+
+        // Try to restore existing token
+        var existingToken = getToken();
+        if (existingToken) {
+          authedFetch('/auth/me')
+            .then(function (res) {
+              if (!res.ok) throw new Error('Not authenticated');
+              return res.json();
+            })
+            .then(function (data) {
+              setUserInfo(data.user);
+              dataCard.style.display = '';
+              logoutBtn.style.display = 'inline-flex';
+              setStatus('Сесія відновлена', false);
+              loadData();
+            })
+            .catch(function () {
+              setToken(null);
+              setUserInfo(null);
+            });
+        }
+      })();
+    </script>
+  </body>
+</html>

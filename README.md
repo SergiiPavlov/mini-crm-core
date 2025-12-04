@@ -360,3 +360,22 @@ Body JSON:
   data-source="feedback-widget"
 ></script>
 ```
+
+
+## Admin UI (minimal)
+
+There is a very simple admin interface served from the backend:
+
+- URL: `http://localhost:4000/admin/`
+- Login: uses `POST /auth/login` (email + password) and JWT token from the backend
+- After login it shows:
+  - list of Cases for the current user's project (`GET /cases`)
+  - list of Contacts for the current user's project (`GET /contacts`)
+
+This is meant as a lightweight way to inspect data coming from public widgets without needing Prisma Studio.
+
+
+### Admin UI: керування зверненнями
+
+У адмінці (`/admin`) тепер можна змінювати статус звернення (Case) через селект у першій колонці.
+Зміни відправляються на бекенд через `PATCH /cases/:id` і зберігаються в базі.
