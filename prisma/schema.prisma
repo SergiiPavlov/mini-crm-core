@@ -6,10 +6,59 @@
 
 generator client {
   provider = "prisma-client"
-  output   = "../src/generated/prisma"
+    output   = "../src/generated/prisma"
 }
 
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id        Int      @id @default(autoincrement())
+  name      String
+  slug      String   @unique
+  config    Json?
+  users     User[]
+  contacts  Contact[]
+  cases     Case[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model User {
+  id         Int      @id @default(autoincrement())
+  email      String   @unique
+  password   String
+  role       String
+  projectId  Int
+  project    Project  @relation(fields: [projectId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Contact {
+  id         Int      @id @default(autoincrement())
+  projectId  Int
+  project    Project  @relation(fields: [projectId], references: [id])
+  name       String
+  email      String?
+  phone      String?
+  notes      String?
+  cases      Case[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Case {
+  id          Int      @id @default(autoincrement())
+  projectId   Int
+  project     Project  @relation(fields: [projectId], references: [id])
+  contactId   Int?
+  contact     Contact? @relation(fields: [contactId], references: [id])
+  title       String
+  description String?
+  status      String
+  source      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
