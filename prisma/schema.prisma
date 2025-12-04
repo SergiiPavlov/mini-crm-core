@@ -13,14 +13,42 @@ datasource db {
   provider = "postgresql"
 }
 
+
+enum TransactionType {
+  income
+  expense
+}
+
+model Transaction {
+  id          Int              @id @default(autoincrement())
+  projectId   Int
+  project     Project          @relation(fields: [projectId], references: [id])
+  contactId   Int?
+  contact     Contact?         @relation(fields: [contactId], references: [id])
+  caseId      Int?
+  case        Case?            @relation(fields: [caseId], references: [id])
+  type        TransactionType
+  amount      Decimal
+  currency    String           @default("UAH")
+  category    String?
+  description String?
+  happenedAt  DateTime         @default(now())
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([projectId, happenedAt])
+  @@index([projectId, type])
+}
+
 model Project {
   id        Int      @id @default(autoincrement())
   name      String
   slug      String   @unique
   config    Json?
-  users     User[]
-  contacts  Contact[]
-  cases     Case[]
+  users         User[]
+  contacts      Contact[]
+  cases         Case[]
+  transactions Transaction[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -43,10 +71,13 @@ model Contact {
   name       String
   email      String?
   phone      String?
-  notes      String?
-  cases      Case[]
-  createdAt  DateTime @default(now())
+  notes         String?
+  cases         Case[]
+  transactions Transaction[]
+  createdAt     DateTime @default(now())
   updatedAt  DateTime @updatedAt
+
+  @@unique([id, projectId])
 }
 
 model Case {
@@ -61,4 +92,9 @@ model Case {
   source      String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  transactions Transaction[]
+
+  @@unique([id, projectId])
+  @@index([projectId, status])
 }
