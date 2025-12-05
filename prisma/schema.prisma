@@ -88,13 +88,28 @@ model Case {
   contact     Contact? @relation(fields: [contactId], references: [id])
   title       String
   description String?
+  internalNote String?
   status      String
   source      String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   transactions Transaction[]
+  tasks        Task[]
 
   @@unique([id, projectId])
   @@index([projectId, status])
 }
+
+model Task {
+  id        Int      @id @default(autoincrement())
+  title     String
+  done      Boolean  @default(false)
+
+  caseId    Int
+  case      Case     @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+

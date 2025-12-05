@@ -379,3 +379,11 @@ This is meant as a lightweight way to inspect data coming from public widgets wi
 
 У адмінці (`/admin`) тепер можна змінювати статус звернення (Case) через селект у першій колонці.
 Зміни відправляються на бекенд через `PATCH /cases/:id` і зберігаються в базі.
+
+
+### Case details & internal notes
+
+- Each Case now has an optional `internalNote` field in the database.
+- The admin UI (`/admin`) allows you to click on a case row to open a detail modal,
+  see full description and contact, and edit internal notes.
+- Notes are saved via `PATCH /cases/:id` with `{ internalNote: string }`.

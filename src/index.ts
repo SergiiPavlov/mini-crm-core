@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import projectsRouter from './routes/projects';
 import authRouter from './routes/auth';
 import contactsRouter from './routes/contacts';
+import tasksRouter from './routes/tasks';
 import casesRouter from './routes/cases';
 import transactionsRouter from './routes/transactions';
 import publicRouter from './routes/public';
@@ -76,6 +77,7 @@ app.get('/health', (_req, res) => {
 app.use('/projects', projectsRouter);
 app.use('/auth', authRouter);
 app.use('/contacts', contactsRouter);
+app.use('/', tasksRouter);
 app.use('/cases', casesRouter);
 app.use('/transactions', transactionsRouter);
 app.use('/public', publicRouter);
