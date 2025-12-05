@@ -9,6 +9,7 @@ const router = express.Router();
 const createCaseSchema = z.object({
   title: z.string().min(1, 'title is required').max(255),
   description: z.string().max(2000).optional(),
+  internalNote: z.string().max(4000).optional(),
   status: z.string().max(100).optional(),
   source: z.string().max(100).optional(),
   contactId: z.number().int().positive().optional(),
@@ -18,6 +19,7 @@ const updateCaseSchema = z
   .object({
     title: z.string().min(1).max(255).optional(),
     description: z.string().max(2000).optional(),
+    internalNote: z.string().max(4000).optional(),
     status: z.string().max(100).optional(),
     source: z.string().max(100).optional(),
     contactId: z.number().int().positive().optional(),
@@ -26,6 +28,7 @@ const updateCaseSchema = z
     (data) =>
       data.title !== undefined ||
       data.description !== undefined ||
+      data.internalNote !== undefined ||
       data.status !== undefined ||
       data.source !== undefined ||
       data.contactId !== undefined,
@@ -138,6 +141,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
         contactId: contactId ?? null,
         title: parsed.title,
         description: parsed.description ?? null,
+        internalNote: parsed.internalNote ?? null,
         status: parsed.status || 'new',
         source: parsed.source || null,
       },
@@ -204,6 +208,7 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res) => {
       data: {
         title: data.title,
         description: data.description,
+        internalNote: data.internalNote,
         status: data.status,
         source: data.source,
         contactId: contactId ?? undefined,
@@ -224,11 +229,15 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res) => {
       });
     }
 
-    if (error.code === 'P2025') {
+    if (error?.code === 'P2025') {
       return res.status(404).json({ error: 'Case not found' });
     }
 
-    return res.status(500).json({ error: 'Failed to update case' });
+    const message = typeof error?.message === 'string' && error.message.trim().length > 0
+      ? error.message
+      : 'Failed to update case';
+
+    return res.status(500).json({ error: message });
   }
 });
 
