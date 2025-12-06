@@ -122,6 +122,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
             projectId: project.id,
             contactId: contact.id,
             title: 'Новий лід з сайту',
+            description: message || null,
             status: 'new',
             source: source || 'widget',
           },
@@ -178,6 +179,11 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         });
       }
 
+      const donationDetailsParts: string[] = [];
+      donationDetailsParts.push(`Сума: ${amount} UAH`);
+      if (message) donationDetailsParts.push(`Коментар: ${message}`);
+      const donationDescription = donationDetailsParts.join(' | ');
+
       let donationCase: any = null;
       try {
         donationCase = await prisma.case.create({
@@ -185,6 +191,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
             projectId: project.id,
             contactId: contact.id,
             title: 'Нове пожертвування з сайту',
+            description: donationDescription || null,
             status: 'new',
             source: source || 'donation-widget',
           },
