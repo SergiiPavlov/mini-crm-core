@@ -328,6 +328,48 @@
         background: #ecfdf3;
       }
 
+      .summary-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin: 12px 0;
+      }
+      .summary-card {
+        flex: 1 1 140px;
+        padding: 8px 12px;
+        border-radius: 12px;
+        background: #f3f4f6;
+        font-size: 13px;
+      }
+      .summary-card-label {
+        display: block;
+        font-size: 11px;
+        color: #6b7280;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        margin-bottom: 2px;
+      }
+      .summary-card-value {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .summary-card.income {
+        background: #ecfdf3;
+      }
+      .summary-card.expense {
+        background: #fef2f2;
+      }
+      .summary-card.net {
+        background: #eff6ff;
+      }
+      .transaction-row-income td {
+        background: #f0fdf4;
+      }
+      .transaction-row-expense td {
+        background: #fef2f2;
+      }
+
+
       .case-tasks-form {
         display: flex;
         gap: 8px;
@@ -423,6 +465,7 @@
           <div class="tabs">
             <button class="tab-btn active" data-tab="cases">Звернення (Cases)</button>
             <button class="tab-btn" data-tab="contacts">Контакти (Contacts)</button>
+            <button class="tab-btn" data-tab="transactions">Фінанси (Transactions)</button>
           </div>
 
           <div id="cases-view">
@@ -477,6 +520,88 @@
                 </tbody>
               </table>
             </div>
+
+          </div>
+
+          <div id="transactions-view" style="display:none; padding:16px 0; min-height:260px; background:#f9fafb;">
+            <h2 id="transactions-main-title" style="margin:0 0 8px 0;font-size:18px;">Фінанси по проєкту</h2>
+            <div class="muted">Фінансові операції по поточному проєкту користувача.</div>
+
+            <div id="transactions-debug" class="muted" style="margin-top:4px; color:#b91c1c; font-weight:600;"></div>
+
+            <div class="filters-row" style="margin-top: 8px;">
+              <div id="transactions-count" class="muted" style="margin-top:4px;"></div>
+              <div class="filter-group">
+                <label for="tx-type-filter" class="muted">Тип</label>
+                <select id="tx-type-filter" class="form-control" style="min-width: 140px;">
+                  <option value="">Усі</option>
+                  <option value="income">Доходи</option>
+                  <option value="expense">Витрати</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label for="tx-category-filter" class="muted">Категорія</label>
+                <input id="tx-category-filter" class="form-control" type="text" placeholder="Напр. donation" />
+              </div>
+            </div>
+
+            <div class="filters-row">
+              <div class="filter-group">
+                <label for="tx-date-from" class="muted">Від дати</label>
+                <input id="tx-date-from" class="form-control" type="date" />
+              </div>
+              <div class="filter-group">
+                <label for="tx-date-to" class="muted">До дати</label>
+                <input id="tx-date-to" class="form-control" type="date" />
+              </div>
+              <div class="filter-group">
+                <label for="tx-min-amount" class="muted">Сума від</label>
+                <input id="tx-min-amount" class="form-control" type="number" step="0.01" />
+              </div>
+              <div class="filter-group">
+                <label for="tx-max-amount" class="muted">Сума до</label>
+                <input id="tx-max-amount" class="form-control" type="number" step="0.01" />
+              </div>
+              <div class="filter-group" style="align-self:flex-end;">
+                <button id="tx-apply-filters" class="btn btn-secondary">Застосувати</button>
+              </div>
+            </div>
+
+            <div class="summary-row">
+              <div class="summary-card income">
+                <span class="summary-card-label">Разом доходи</span>
+                <span class="summary-card-value" id="summary-income">—</span>
+              </div>
+              <div class="summary-card expense">
+                <span class="summary-card-label">Разом витрати</span>
+                <span class="summary-card-value" id="summary-expense">—</span>
+              </div>
+              <div class="summary-card net">
+                <span class="summary-card-label">Баланс</span>
+                <span class="summary-card-value" id="summary-net">—</span>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Дата</th>
+                    <th>Тип</th>
+                    <th>Сума</th>
+                    <th>Категорія</th>
+                    <th>Опис</th>
+                    <th>Контакт</th>
+                    <th>Кейс</th>
+                  </tr>
+                </thead>
+                <tbody id="transactions-tbody">
+                  <tr><td colspan="7" class="muted">Немає даних</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
           </div>
         </div>
 
@@ -577,6 +702,22 @@
         var tabs = document.querySelectorAll('.tab-btn');
         var casesView = document.getElementById('cases-view');
         var contactsView = document.getElementById('contacts-view');
+        var transactionsView = document.getElementById('transactions-view');
+        var transactionsTbody = document.getElementById('transactions-tbody');
+        var transactionsCountEl = document.getElementById('transactions-count');
+        var transactionsDebugEl = document.getElementById('transactions-debug');
+
+        var txTypeFilter = document.getElementById('tx-type-filter');
+        var txCategoryFilter = document.getElementById('tx-category-filter');
+        var txDateFromFilter = document.getElementById('tx-date-from');
+        var txDateToFilter = document.getElementById('tx-date-to');
+        var txMinAmountFilter = document.getElementById('tx-min-amount');
+        var txMaxAmountFilter = document.getElementById('tx-max-amount');
+        var txApplyFiltersBtn = document.getElementById('tx-apply-filters');
+
+        var summaryIncomeEl = document.getElementById('summary-income');
+        var summaryExpenseEl = document.getElementById('summary-expense');
+        var summaryNetEl = document.getElementById('summary-net');
 
         var caseModalBackdrop = document.getElementById('case-modal-backdrop');
         var caseModalClose = document.getElementById('case-modal-close');
@@ -592,6 +733,7 @@
         var currentCaseId = null;
         var currentCaseInitialInternalNote = '';
         var lastCases = [];
+        var lastTransactions = [];
         var caseTasksForm = document.getElementById('case-tasks-form');
         var caseTaskInput = document.getElementById('case-task-input');
         var caseTasksList = document.getElementById('case-tasks-list');
@@ -650,7 +792,19 @@
         }
 
 
-        function formatContactForModal(contact) {
+        
+        function formatCurrency(amount, currency) {
+          if (amount == null || Number.isNaN(Number(amount))) return '';
+          var value = Number(amount);
+          var cur = currency || '';
+          var formatted = value.toLocaleString(undefined, {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          });
+          return cur ? (formatted + ' ' + cur) : formatted;
+        }
+
+function formatContactForModal(contact) {
           if (!contact) return '<span class="muted">нема даних</span>';
           var parts = [];
           if (contact.name) parts.push(contact.name);
@@ -811,7 +965,87 @@
           contactsTbody.innerHTML = rows;
         }
 
-        function loadData() {
+        
+        function renderTransactions(transactions) {
+          console.log('renderTransactions called, items:', Array.isArray(transactions) ? transactions.length : 'not array');
+          lastTransactions = Array.isArray(transactions) ? transactions : [];
+          if (transactionsDebugEl) {
+            transactionsDebugEl.textContent = 'DEBUG: отримано ' + lastTransactions.length + ' транзакцій';
+          }
+
+          if (!transactionsTbody) return;
+
+                    if (transactionsCountEl) { transactionsCountEl.textContent = 'Всього ' + lastTransactions.length + ' транзакцій'; }
+
+          if (!Array.isArray(lastTransactions) || lastTransactions.length === 0) {
+            if (transactionsCountEl) { transactionsCountEl.textContent = 'Немає транзакцій'; }
+            transactionsTbody.innerHTML = '<tr><td colspan="7" class="muted">Немає даних</td></tr>';
+            return;
+          }
+
+          var rows = lastTransactions
+            .map(function (t) {
+              var type = t.type || '';
+              var rowClass = '';
+              if (type === 'income') rowClass = 'transaction-row-income';
+              else if (type === 'expense') rowClass = 'transaction-row-expense';
+
+              var amountStr = formatCurrency(t.amount, t.currency);
+              var typeLabel = type === 'income' ? 'Доходи' : (type === 'expense' ? 'Витрати' : type || '—');
+              var category = t.category || '—';
+              var description = t.description || '';
+              var dateValue = t.happenedAt || t.createdAt;
+
+              var contactStr = '<span class="muted">—</span>';
+              if (t.contact) {
+                var parts = [];
+                if (t.contact.name) parts.push(t.contact.name);
+                if (t.contact.email) parts.push('(' + t.contact.email + ')');
+                contactStr = parts.join(' ') || '<span class="muted">—</span>';
+              }
+
+              var caseStr = '<span class="muted">—</span>';
+              if (t.case) {
+                var base = '#' + t.case.id;
+                if (t.case.title) base += ': ' + t.case.title;
+                caseStr = base;
+              }
+
+              return (
+                '<tr class="' + rowClass + '">' +
+                '<td>' + formatDate(dateValue) + '</td>' +
+                '<td>' + typeLabel + '</td>' +
+                '<td>' + amountStr + '</td>' +
+                '<td>' + category + '</td>' +
+                '<td>' + (description || '<span class="muted">—</span>') + '</td>' +
+                '<td>' + contactStr + '</td>' +
+                '<td>' + caseStr + '</td>' +
+                '</tr>'
+              );
+            })
+            .join('');
+
+          transactionsTbody.innerHTML = rows;
+        }
+
+        function renderTransactionsSummary(summary) {
+          if (!summary) {
+            if (summaryIncomeEl) summaryIncomeEl.textContent = '—';
+            if (summaryExpenseEl) summaryExpenseEl.textContent = '—';
+            if (summaryNetEl) summaryNetEl.textContent = '—';
+            return;
+          }
+
+          var totalIncome = Number(summary.totalIncome || 0);
+          var totalExpense = Number(summary.totalExpense || 0);
+          var net = Number(summary.net || 0);
+
+          if (summaryIncomeEl) summaryIncomeEl.textContent = formatCurrency(totalIncome);
+          if (summaryExpenseEl) summaryExpenseEl.textContent = formatCurrency(totalExpense);
+          if (summaryNetEl) summaryNetEl.textContent = formatCurrency(net);
+        }
+
+function loadData() {
           Promise.all([
             authedFetch('/cases').then(function (res) {
               if (!res.ok) throw new Error('Failed to load cases');
@@ -821,10 +1055,20 @@
               if (!res.ok) throw new Error('Failed to load contacts');
               return res.json();
             }),
+            authedFetch('/transactions').then(function (res) {
+              if (!res.ok) throw new Error('Failed to load transactions');
+              return res.json();
+            }),
+            authedFetch('/transactions/summary').then(function (res) {
+              if (!res.ok) throw new Error('Failed to load transaction summary');
+              return res.json();
+            }),
           ])
             .then(function (results) {
               renderCases(results[0]);
               renderContacts(results[1]);
+              renderTransactions(results[2]);
+              renderTransactionsSummary(results[3]);
             })
             .catch(function (err) {
               console.error('Failed to load data', err);
@@ -832,18 +1076,89 @@
             });
         }
 
-        tabs.forEach(function (btn) {
+        
+        function buildTransactionsQueryFromFilters() {
+          var params = [];
+
+          if (txTypeFilter && txTypeFilter.value) {
+            params.push('type=' + encodeURIComponent(txTypeFilter.value));
+          }
+          if (txCategoryFilter && txCategoryFilter.value) {
+            params.push('category=' + encodeURIComponent(txCategoryFilter.value.trim()));
+          }
+          if (txDateFromFilter && txDateFromFilter.value) {
+            params.push('dateFrom=' + encodeURIComponent(txDateFromFilter.value));
+          }
+          if (txDateToFilter && txDateToFilter.value) {
+            params.push('dateTo=' + encodeURIComponent(txDateToFilter.value));
+          }
+          if (txMinAmountFilter && txMinAmountFilter.value) {
+            params.push('minAmount=' + encodeURIComponent(txMinAmountFilter.value));
+          }
+          if (txMaxAmountFilter && txMaxAmountFilter.value) {
+            params.push('maxAmount=' + encodeURIComponent(txMaxAmountFilter.value));
+          }
+
+          if (!params.length) return '';
+          return '?' + params.join('&');
+        }
+
+        function reloadTransactionsWithFilters() {
+          var query = buildTransactionsQueryFromFilters();
+          setStatus('Завантаження транзакцій...', false);
+
+          Promise.all([
+            authedFetch('/transactions' + query).then(function (res) {
+              if (!res.ok) throw new Error('Failed to load transactions');
+              return res.json();
+            }),
+            authedFetch('/transactions/summary' + query).then(function (res) {
+              if (!res.ok) throw new Error('Failed to load transaction summary');
+              return res.json();
+            }),
+          ])
+            .then(function (results) {
+              renderTransactions(results[0]);
+              renderTransactionsSummary(results[1]);
+              setStatus('Дані оновлено', false);
+            })
+            .catch(function (err) {
+              console.error('Failed to load filtered transactions', err);
+              setStatus('Не вдалося завантажити транзакції', true);
+            });
+        }
+
+        if (txApplyFiltersBtn) {
+          txApplyFiltersBtn.addEventListener('click', function () {
+            reloadTransactionsWithFilters();
+          });
+        }
+
+tabs.forEach(function (btn) {
           btn.addEventListener('click', function () {
             tabs.forEach(function (b) { b.classList.remove('active'); });
             btn.classList.add('active');
 
             var tab = btn.getAttribute('data-tab');
             if (tab === 'cases') {
-              casesView.style.display = '';
-              contactsView.style.display = 'none';
-            } else {
-              casesView.style.display = 'none';
-              contactsView.style.display = '';
+              if (casesView) casesView.style.display = '';
+              if (contactsView) contactsView.style.display = 'none';
+              if (transactionsView) transactionsView.style.display = 'none';
+            } else if (tab === 'contacts') {
+              if (casesView) casesView.style.display = 'none';
+              if (contactsView) contactsView.style.display = '';
+              if (transactionsView) transactionsView.style.display = 'none';
+            } else if (tab === 'transactions') {
+              if (casesView) casesView.style.display = 'none';
+              if (contactsView) contactsView.style.display = 'none';
+              if (transactionsView) {
+                transactionsView.style.display = '';
+                try {
+                  transactionsView.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (e) {}
+              }
+              // При переключенні на вкладку "Фінанси" завжди оновлюємо транзакції
+              reloadTransactionsWithFilters();
             }
           });
         });
