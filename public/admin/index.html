@@ -319,13 +319,13 @@
         color: #166534;
       }
       .status-row-new td {
-        background: #fef2f2;
+        background: var(--case-row-bg-new, #fef2f2);
       }
       .status-row-in_progress td {
-        background: #fffbeb;
+        background: var(--case-row-bg-in_progress, #fffbeb);
       }
       .status-row-done td {
-        background: #ecfdf3;
+        background: var(--case-row-bg-done, #ecfdf3);
       }
 
       .summary-row {
@@ -433,6 +433,66 @@
         font-size: 13px;
         color: #94a3b8;
       }
+
+      .config-panel {
+        margin-top: 16px;
+        padding: 12px;
+        border-radius: 8px;
+        background: #f9fafb;
+        border: 1px solid #e5e7eb;
+      }
+
+      .config-panel-title {
+        font-size: 14px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: #0f172a;
+      }
+
+      .config-panel-subtitle {
+        font-size: 12px;
+        color: #6b7280;
+        margin-bottom: 8px;
+      }
+
+      .config-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 8px;
+      }
+
+      .config-table th,
+      .config-table td {
+        font-size: 13px;
+        padding: 4px 6px;
+        border-bottom: 1px solid #e5e7eb;
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      .config-table input[type="text"] {
+        width: 100%;
+        padding: 4px 6px;
+        font-size: 13px;
+        border-radius: 4px;
+        border: 1px solid #d1d5db;
+      }
+
+      .config-table input[type="color"] {
+        width: 48px;
+        height: 24px;
+        padding: 0;
+        border-radius: 4px;
+        border: 1px solid #d1d5db;
+        background: transparent;
+      }
+
+      .config-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 4px;
+      }
 </style>
   </head>
   <body>
@@ -484,6 +544,16 @@
                 Done <span class="filter-counter" data-counter-for="done">0</span>
               </button>
             </div>
+
+            <div class="filters-row" style="margin-top: 8px;">
+              <button type="button" id="open-case-status-config">
+                Налаштування статусів звернень
+              </button>
+              <button type="button" id="open-notifications-config" style="margin-left: 8px;">
+                Налаштування сповіщень
+              </button>
+            </div>
+
             <div class="table-wrap">
               <table>
                 <thead>
@@ -501,6 +571,7 @@
                 </tbody>
               </table>
             </div>
+
           </div>
 
           <div id="contacts-view" style="display:none;">
@@ -657,16 +728,309 @@
           </div>
         </div>
 
-      </main>
+      
+        <div class="modal-backdrop" id="case-status-config-modal-backdrop" style="display:none;">
+          <div class="modal">
+            <div class="modal-header">
+              <h2>Налаштування статусів звернень</h2>
+              <button type="button" class="btn-secondary" id="case-status-config-close">Закрити</button>
+            </div>
+            <div class="modal-body">
+              <div id="case-status-config-editor"></div>
+            </div>
+          </div>
+        
+                </div>
+
+        <div class="modal-backdrop" id="notifications-config-modal-backdrop" style="display:none;">
+          <div class="modal">
+            <div class="modal-header">
+              <h2>Налаштування сповіщень</h2>
+              <button type="button" class="btn-secondary" id="notifications-config-close">Закрити</button>
+            </div>
+            <div class="modal-body">
+              <div class="config-panel">
+                <label>
+                  Email-адреси для сповіщень
+                  <span class="muted">(через кому)</span>
+                  <input type="text" id="notifications-emails-input" placeholder="you@example.com, other@example.com" />
+                </label>
+                <div class="config-grid">
+                  <label class="badge">
+                    <input type="checkbox" id="notify-on-lead" />
+                    <span>Надсилати сповіщення про ліди</span>
+                  </label>
+                  <label class="badge">
+                    <input type="checkbox" id="notify-on-donation" />
+                    <span>Надсилати сповіщення про пожертвування</span>
+                  </label>
+                  <label class="badge">
+                    <input type="checkbox" id="notify-on-booking" />
+                    <span>Надсилати сповіщення про бронювання</span>
+                  </label>
+                  <label class="badge">
+                    <input type="checkbox" id="notify-on-feedback" />
+                    <span>Надсилати сповіщення про відгуки</span>
+                  </label>
+                </div>
+                <div class="config-actions">
+                  <button type="button" id="notifications-config-save">Зберегти сповіщення</button>
+                  <span id="notifications-config-status" class="muted"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+</div>
+
+</main>
     </div>
 
     <script>
       (function () {
         var apiBase = window.location.origin;
         var tokenKey = 'mini-crm-admin-token';
-        var CASE_STATUSES = ['new', 'in_progress', 'done'];
-        var currentCaseFilter = 'all';
-        var caseFilterButtons = document.querySelectorAll('.case-filter-btn');
+
+        var DEFAULT_CASE_STATUS_CONFIG = [
+          { code: 'new', label: 'New', rowBg: '#fef2f2' },
+          { code: 'in_progress', label: 'In progress', rowBg: '#fffbeb' },
+          { code: 'done', label: 'Done', rowBg: '#ecfdf3' },
+        ];
+
+        var CASE_STATUSES = DEFAULT_CASE_STATUS_CONFIG.map(function (s) { return s.code; });
+        var caseStatusConfigMap = {};
+        DEFAULT_CASE_STATUS_CONFIG.forEach(function (s) {
+          caseStatusConfigMap[s.code] = s;
+        });
+
+        var currentProjectConfig = null;
+
+        function getCaseStatusMeta(code) {
+          return caseStatusConfigMap[code] || null;
+        }
+
+        function applyProjectConfigFromServer(config) {
+          try {
+            if (!config || !Array.isArray(config.caseStatuses) || !config.caseStatuses.length) {
+              return;
+            }
+            currentProjectConfig = config;
+            var map = {};
+            var codes = [];
+            config.caseStatuses.forEach(function (item) {
+              if (!item || !item.code) return;
+              var code = String(item.code);
+              var base = caseStatusConfigMap[code] || { code: code };
+              map[code] = {
+                code: code,
+                label: item.label || base.label || code,
+                rowBg: item.rowBg || base.rowBg || '',
+              };
+              codes.push(code);
+            });
+            if (!codes.length) return;
+            CASE_STATUSES = codes;
+            caseStatusConfigMap = map;
+            updateCaseStatusCssFromConfig();
+            updateCaseFiltersLabels();
+            // Перерендеримо кейси з оновленими статусами, якщо вони вже завантажені
+            if (typeof renderCases === 'function') {
+              renderCases(lastCases);
+            }
+            if (typeof renderCaseStatusConfigEditor === 'function') {
+              renderCaseStatusConfigEditor();
+            }
+          } catch (e) {
+            console.error('Failed to apply project config', e);
+          }
+        }
+
+        function updateCaseStatusCssFromConfig() {
+          try {
+            var root = document.documentElement;
+            if (!root || !caseStatusConfigMap) return;
+            Object.keys(caseStatusConfigMap).forEach(function (code) {
+              var meta = caseStatusConfigMap[code];
+              if (!meta || !meta.rowBg) return;
+              var varName = '--case-row-bg-' + code;
+              root.style.setProperty(varName, meta.rowBg);
+            });
+          } catch (e) {
+            console.error('Failed to update case status CSS vars', e);
+          }
+        }
+
+
+        function escapeHtml(str) {
+          if (str === null || str === undefined) return '';
+          return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        }
+
+        function normalizeColor(value) {
+          if (!value) return '#ffffff';
+          var v = String(value).trim();
+          if (/^#[0-9a-fA-F]{3}$/.test(v) || /^#[0-9a-fA-F]{6}$/.test(v)) {
+            return v;
+          }
+          return '#ffffff';
+        }
+
+        function renderCaseStatusConfigEditor() {
+          var container = document.getElementById('case-status-config-editor');
+          if (!container) return;
+
+          var codes = (CASE_STATUSES || []).slice();
+          if (!codes.length) {
+            container.innerHTML = '<div class="config-panel"><div class="config-panel-title">Налаштування статусів</div><div class="config-panel-subtitle">Статуси ще не завантажені.</div></div>';
+            return;
+          }
+
+          var html = '';
+          html += '<div class="config-panel">';
+          html += '<div class="config-panel-title">Налаштування статусів звернень</div>';
+          html += '<div class="config-panel-subtitle">Тут можна змінити назви та кольори статусів. Коди статусів фіксовані.</div>';
+          html += '<table class="config-table"><thead><tr><th>Код</th><th>Назва (label)</th><th>Колір рядка</th></tr></thead><tbody>';
+
+          codes.forEach(function (code) {
+            var meta = getCaseStatusMeta(code) || { code: code };
+            var label = meta.label || code;
+            var rowBg = normalizeColor(meta.rowBg || '#ffffff');
+            html += '<tr data-status-code="' + code + '">';
+            html += '<td>' + escapeHtml(code) + '</td>';
+            html += '<td><input type="text" class="status-label-input" value="' + escapeHtml(label) + '"/></td>';
+            html += '<td><input type="color" class="status-color-input" value="' + rowBg + '"/></td>';
+            html += '</tr>';
+          });
+
+          html += '</tbody></table>';
+          html += '<div class="config-actions">';
+          html += '<button type="button" class="btn btn-primary" id="save-case-status-config-btn">Зберегти статуси</button>';
+          html += '<div id="case-status-config-status" class="status" style="margin-left:4px;"></div>';
+          html += '</div>';
+          html += '</div>';
+
+          container.innerHTML = html;
+
+          var saveBtn = document.getElementById('save-case-status-config-btn');
+          if (saveBtn) {
+            saveBtn.addEventListener('click', function () {
+              saveCaseStatusConfig();
+            });
+          }
+        }
+
+        function saveCaseStatusConfig() {
+          var container = document.getElementById('case-status-config-editor');
+          if (!container) return;
+
+          var statusEl = document.getElementById('case-status-config-status');
+          function setStatus(msg, isError) {
+            if (!statusEl) return;
+            statusEl.textContent = msg || '';
+            statusEl.style.color = isError ? '#b91c1c' : '#15803d';
+          }
+
+          var rows = container.querySelectorAll('tbody tr[data-status-code]');
+          if (!rows || !rows.length) {
+            setStatus('Немає рядків для збереження', true);
+            return;
+          }
+
+          var items = [];
+          rows.forEach(function (row) {
+            var code = row.getAttribute('data-status-code');
+            if (!code) return;
+            var labelInput = row.querySelector('.status-label-input');
+            var colorInput = row.querySelector('.status-color-input');
+            var label = labelInput && labelInput.value ? labelInput.value.trim() : code;
+            var color = colorInput && colorInput.value ? normalizeColor(colorInput.value) : '#ffffff';
+            items.push({
+              code: code,
+              label: label || code,
+              rowBg: color,
+            });
+          });
+
+          if (!items.length) {
+            setStatus('Немає валідних статусів для збереження', true);
+            return;
+          }
+
+          // Локально оновлюємо конфіг перед запитом, щоб рядки одразу змінювали колір
+          try {
+            var map = {};
+            var codes = [];
+            items.forEach(function (item) {
+              var base = caseStatusConfigMap[item.code] || { code: item.code };
+              map[item.code] = {
+                code: item.code,
+                label: item.label || base.label || item.code,
+                rowBg: item.rowBg || base.rowBg || '',
+              };
+              codes.push(item.code);
+            });
+            if (codes.length) {
+              CASE_STATUSES = codes;
+              caseStatusConfigMap = map;
+              updateCaseStatusCssFromConfig();
+              if (typeof updateCaseFiltersLabels === 'function') {
+                updateCaseFiltersLabels();
+              }
+              if (typeof renderCases === 'function') {
+                renderCases(lastCases);
+              }
+            }
+          } catch (e) {
+            console.error('Failed to apply local case status config', e);
+          }
+
+          setStatus('Збереження...', false);
+
+          authedFetch('/projects/current/config', {
+            method: 'PATCH',
+            body: JSON.stringify({ caseStatuses: items }),
+          })
+            .then(function (res) {
+              if (!res.ok) {
+                throw new Error('Failed to save config');
+              }
+              return res.json();
+            })
+            .then(function (data) {
+              if (data && data.config) {
+                applyProjectConfigFromServer(data.config);
+              }
+              setStatus('Збережено', false);
+            })
+            .catch(function (err) {
+              console.error('Failed to save case status config', err);
+              setStatus('Помилка збереження', true);
+            });
+        }
+
+function updateCaseFiltersLabels() {
+          var buttons = document.querySelectorAll('.case-filter-btn');
+          if (!buttons || !buttons.length) return;
+          buttons.forEach(function (btn) {
+            var filter = btn.getAttribute('data-filter');
+            if (!filter || filter === 'all') return;
+            var meta = getCaseStatusMeta(filter);
+            if (!meta || !meta.label) return;
+            // ожидаем структуру: "Label <span class='filter-counter'>N</span>"
+            var firstNode = btn.firstChild;
+            if (firstNode && firstNode.nodeType === Node.TEXT_NODE) {
+              firstNode.nodeValue = meta.label + ' ';
+            }
+          });
+        }
+
+var currentCaseFilter = 'all';
+        var caseFilterButtons = Array.prototype.slice.call(document.querySelectorAll('.case-filter-btn'));
         console.log('mini-crm admin: filters found', caseFilterButtons.length);
 
         if (caseFilterButtons && caseFilterButtons.length) {
@@ -680,7 +1044,6 @@
             });
           });
         }
-
 
         function applyCaseFilter(filter) {
           if (typeof filter === 'string') {
@@ -730,6 +1093,21 @@
         var caseModalContact = document.getElementById('case-modal-contact');
         var caseModalSource = document.getElementById('case-modal-source');
         var caseModalInternalNote = document.getElementById('case-modal-internal-note');
+        var caseStatusConfigModalBackdrop = document.getElementById('case-status-config-modal-backdrop');
+        var caseStatusConfigClose = document.getElementById('case-status-config-close');
+        var openCaseStatusConfigBtn = document.getElementById('open-case-status-config');
+
+        var notificationsConfigModalBackdrop = document.getElementById('notifications-config-modal-backdrop');
+        var notificationsConfigClose = document.getElementById('notifications-config-close');
+        var notificationsConfigSave = document.getElementById('notifications-config-save');
+        var notificationsEmailsInput = document.getElementById('notifications-emails-input');
+        var notifyOnLeadCheckbox = document.getElementById('notify-on-lead');
+        var notifyOnDonationCheckbox = document.getElementById('notify-on-donation');
+        var notifyOnBookingCheckbox = document.getElementById('notify-on-booking');
+        var notifyOnFeedbackCheckbox = document.getElementById('notify-on-feedback');
+        var openNotificationsConfigBtn = document.getElementById('open-notifications-config');
+        var notificationsConfigStatus = document.getElementById('notifications-config-status');
+
         var currentCaseId = null;
         var currentCaseInitialInternalNote = '';
         var lastCases = [];
@@ -817,13 +1195,20 @@ function formatContactForModal(contact) {
         function renderCases(cases) {
           lastCases = Array.isArray(cases) ? cases : [];
           var list = lastCases;
-          var counts = { all: lastCases.length, new: 0, in_progress: 0, done: 0 };
+
+          // лічильники по статусам
+          var counts = { all: lastCases.length };
+          CASE_STATUSES.forEach(function (code) {
+            counts[code] = 0;
+          });
           lastCases.forEach(function (c) {
             var st = c.status || 'new';
-            if (st === 'new') counts.new++;
-            else if (st === 'in_progress') counts.in_progress++;
-            else if (st === 'done') counts.done++;
+            if (typeof counts[st] === 'undefined') {
+              counts[st] = 0;
+            }
+            counts[st]++;
           });
+
           if (caseFilterButtons && caseFilterButtons.length) {
             caseFilterButtons.forEach(function (btn) {
               var f = btn.getAttribute('data-filter') || 'all';
@@ -841,10 +1226,12 @@ function formatContactForModal(contact) {
               return status === currentCaseFilter;
             });
           }
+
           if (!Array.isArray(list) || list.length === 0) {
             casesTbody.innerHTML = '<tr><td colspan="6" class="muted">Немає даних</td></tr>';
             return;
           }
+
           var rows = list
             .map(function (c) {
               var contact = c.contact || {};
@@ -866,16 +1253,26 @@ function formatContactForModal(contact) {
                 statuses
                   .map(function (s) {
                     var selected = s === status ? ' selected' : '';
-                    return '<option value="' + s + '"' + selected + '>' + s + '</option>';
+                    var metaForOption = getCaseStatusMeta(s);
+                    var label = metaForOption && metaForOption.label ? metaForOption.label : s;
+                    return '<option value="' + s + '"' + selected + '>' + label + '</option>';
                   })
                   .join('') +
                 '</select>';
 
               var notePreview = c.internalNote ? 'є' : '—';
               var rowClass = 'status-row-' + status;
+              var meta = getCaseStatusMeta(status);
+              var rowStyle = meta && meta.rowBg ? ' style="background:' + meta.rowBg + ';"' : '';
 
               return (
-                '<tr class="case-row ' + rowClass + '" data-case-id="' + c.id + '">' +
+                '<tr class="case-row ' +
+                rowClass +
+                '" data-case-id="' +
+                c.id +
+                '"' +
+                rowStyle +
+                '>' +
                 '<td>' + selectHtml + '</td>' +
                 '<td>' +
                 (c.title || '') +
@@ -889,33 +1286,33 @@ function formatContactForModal(contact) {
               );
             })
             .join('');
+
           casesTbody.innerHTML = rows;
 
           var selects = casesTbody.querySelectorAll('.status-select');
-          var rows = casesTbody.querySelectorAll('tr.case-row');
-          rows.forEach(function (row) {
+          var rowsEls = casesTbody.querySelectorAll('tr.case-row');
+          rowsEls.forEach(function (row) {
             row.addEventListener('click', function (e) {
               if (e.target && e.target.closest && e.target.closest('.status-select')) {
                 return;
               }
               var idAttr = row.getAttribute('data-case-id');
+              if (!idAttr) return;
               var id = Number(idAttr);
-              if (!idAttr || Number.isNaN(id)) return;
+              if (!Number.isFinite(id)) return;
               openCaseModal(id);
             });
           });
 
-          selects.forEach(function (sel) {
-            sel.addEventListener('change', function () {
-              var idAttr = sel.getAttribute('data-case-id');
+          selects.forEach(function (select) {
+            select.addEventListener('change', function () {
+              var idAttr = select.getAttribute('data-case-id');
+              if (!idAttr) return;
               var id = Number(idAttr);
-              if (!idAttr || Number.isNaN(id)) {
-                console.warn('Invalid case id on select', idAttr);
-                return;
-              }
-              var newStatus = sel.value;
-              setStatus('Оновлення статусу кейсу...', false);
+              var newStatus = select.value;
+              if (!Number.isFinite(id) || !newStatus) return;
 
+              setStatus('Оновлення статусу кейсу...', false);
               authedFetch('/cases/' + id, {
                 method: 'PATCH',
                 body: JSON.stringify({ status: newStatus }),
@@ -924,28 +1321,30 @@ function formatContactForModal(contact) {
                   if (!res.ok) {
                     return res
                       .json()
-                      .catch(function () {
-                        return { error: 'Failed to update case' };
-                      })
+                      .catch(function () { return { error: 'Failed to update case' }; })
                       .then(function (data) {
                         throw new Error(data.error || 'Failed to update case');
                       });
                   }
                   return res.json();
                 })
-                .then(function () {
+                .then(function (updated) {
+                  if (!Array.isArray(lastCases)) return;
+                  lastCases = lastCases.map(function (c) {
+                    return c.id === updated.id ? updated : c;
+                  });
+                  renderCases(lastCases);
                   setStatus('Статус кейсу оновлено', false);
-                  loadData();
                 })
                 .catch(function (err) {
                   console.error('Failed to update case', err);
-                  setStatus(err.message || 'Не вдалося оновити статус кейсу', true);
+                  setStatus(err.message || 'Не вдалося оновити кейс', true);
                 });
             });
           });
         }
 
-        function renderContacts(contacts) {
+function renderContacts(contacts) {
           if (!Array.isArray(contacts) || contacts.length === 0) {
             contactsTbody.innerHTML = '<tr><td colspan="4" class="muted">Немає даних</td></tr>';
             return;
@@ -1043,6 +1442,24 @@ function formatContactForModal(contact) {
           if (summaryIncomeEl) summaryIncomeEl.textContent = formatCurrency(totalIncome);
           if (summaryExpenseEl) summaryExpenseEl.textContent = formatCurrency(totalExpense);
           if (summaryNetEl) summaryNetEl.textContent = formatCurrency(net);
+        }
+
+        function loadProjectConfig() {
+          return authedFetch('/projects/current')
+            .then(function (res) {
+              if (!res.ok) {
+                throw new Error('Failed to load project');
+              }
+              return res.json();
+            })
+            .then(function (data) {
+              if (data && data.config) {
+                applyProjectConfigFromServer(data.config);
+              }
+            })
+            .catch(function (err) {
+              console.error('Failed to load project config', err);
+            });
         }
 
 function loadData() {
@@ -1191,7 +1608,9 @@ tabs.forEach(function (btn) {
               setStatus('Успішний вхід', false);
               dataCard.style.display = '';
               logoutBtn.style.display = 'inline-flex';
-              loadData();
+              loadProjectConfig().finally(function () {
+                loadData();
+              });
             })
             .catch(function (err) {
               console.error('Login error', err);
@@ -1223,7 +1642,9 @@ tabs.forEach(function (btn) {
           currentCaseId = id;
           caseModalTitle.textContent = 'Кейс #' + id;
           caseModalMainTitle.textContent = c.title || '';
-          caseModalStatusEl.textContent = c.status || 'new';
+          var modalStatus = c.status || 'new';
+          var modalStatusMeta = getCaseStatusMeta(modalStatus);
+          caseModalStatusEl.textContent = (modalStatusMeta && modalStatusMeta.label) || modalStatus;
           caseModalDescription.textContent = c.description || '';
           caseModalContact.innerHTML = formatContactForModal(c.contact || null);
           caseModalSource.textContent = c.source || '–';
@@ -1434,7 +1855,8 @@ tabs.forEach(function (btn) {
             })
             .then(function () {
               c.status = nextStatus;
-              caseModalStatusEl.textContent = nextStatus;
+              var metaAfterTasks = getCaseStatusMeta(nextStatus);
+              caseModalStatusEl.textContent = (metaAfterTasks && metaAfterTasks.label) || nextStatus;
               loadData();
               setStatus('Статус кейсу оновлено за задачами', false);
             })
@@ -1448,9 +1870,154 @@ tabs.forEach(function (btn) {
           currentCaseId = null;
           caseModalBackdrop.style.display = 'none';
         }
+        function openCaseStatusConfigModal() {
+          if (caseStatusConfigModalBackdrop) {
+            caseStatusConfigModalBackdrop.style.display = 'flex';
+          }
+          if (typeof renderCaseStatusConfigEditor === 'function') {
+            renderCaseStatusConfigEditor();
+          }
+        }
 
-        caseModalClose.addEventListener('click', function () {
-          closeCaseModal();
+        function closeCaseStatusConfigModal() {
+          if (caseStatusConfigModalBackdrop) {
+            caseStatusConfigModalBackdrop.style.display = 'none';
+          }
+        }
+
+        if (openCaseStatusConfigBtn) {
+          openCaseStatusConfigBtn.addEventListener('click', function () {
+            openCaseStatusConfigModal();
+          });
+        }
+        if (caseStatusConfigClose) {
+          caseStatusConfigClose.addEventListener('click', function () {
+            closeCaseStatusConfigModal();
+          });
+        }
+
+
+        function openNotificationsConfigModal() {
+          if (!notificationsConfigModalBackdrop) return;
+          notificationsConfigModalBackdrop.style.display = 'flex';
+          if (typeof renderNotificationsConfigEditor === 'function') {
+            renderNotificationsConfigEditor();
+          }
+        }
+
+        function closeNotificationsConfigModal() {
+          if (!notificationsConfigModalBackdrop) return;
+          notificationsConfigModalBackdrop.style.display = 'none';
+        }
+
+        function setNotificationsConfigStatus(message, isError) {
+          if (!notificationsConfigStatus) return;
+          notificationsConfigStatus.textContent = message || '';
+          notificationsConfigStatus.style.color = isError ? '#b91c1c' : '#64748b';
+        }
+
+        function renderNotificationsConfigEditor() {
+          if (!notificationsEmailsInput) return;
+          var config = currentProjectConfig || {};
+          var notifications = config.notifications || {};
+          var emails = Array.isArray(notifications.emails) ? notifications.emails : [];
+          if (!emails.length) {
+            emails = ['pavlovsergii106@gmail.com'];
+          }
+          notificationsEmailsInput.value = emails.join(', ');
+
+          var notifyOnLead =
+            typeof notifications.notifyOnLead === 'boolean' ? notifications.notifyOnLead : true;
+          var notifyOnDonation =
+            typeof notifications.notifyOnDonation === 'boolean' ? notifications.notifyOnDonation : true;
+          var notifyOnBooking =
+            typeof notifications.notifyOnBooking === 'boolean' ? notifications.notifyOnBooking : true;
+          var notifyOnFeedback =
+            typeof notifications.notifyOnFeedback === 'boolean' ? notifications.notifyOnFeedback : true;
+
+          if (notifyOnLeadCheckbox) notifyOnLeadCheckbox.checked = !!notifyOnLead;
+          if (notifyOnDonationCheckbox) notifyOnDonationCheckbox.checked = !!notifyOnDonation;
+          if (notifyOnBookingCheckbox) notifyOnBookingCheckbox.checked = !!notifyOnBooking;
+          if (notifyOnFeedbackCheckbox) notifyOnFeedbackCheckbox.checked = !!notifyOnFeedback;
+
+          setNotificationsConfigStatus('', false);
+        }
+
+        function parseEmails(raw) {
+          if (!raw) return [];
+          return raw
+            .split(/[;,\s]+/)
+            .map(function (s) { return s.trim(); })
+            .filter(function (s) { return s.length > 0; });
+        }
+
+        async function saveNotificationsConfig() {
+          if (!notificationsEmailsInput) return;
+          setNotificationsConfigStatus('Збереження...', false);
+
+          var emails = parseEmails(notificationsEmailsInput.value);
+          var notifyOnLead = notifyOnLeadCheckbox ? !!notifyOnLeadCheckbox.checked : true;
+          var notifyOnDonation = notifyOnDonationCheckbox ? !!notifyOnDonationCheckbox.checked : true;
+          var notifyOnBooking = notifyOnBookingCheckbox ? !!notifyOnBookingCheckbox.checked : true;
+          var notifyOnFeedback = notifyOnFeedbackCheckbox ? !!notifyOnFeedbackCheckbox.checked : true;
+
+          var caseStatusesPayload = CASE_STATUSES.map(function (code) {
+            var meta = caseStatusConfigMap[code] || { code: code, label: code };
+            return {
+              code: code,
+              label: meta.label || code,
+              rowBg: meta.rowBg || undefined,
+            };
+          });
+
+          try {
+            await authedFetch('/projects/current/config', {
+              method: 'PATCH',
+              body: JSON.stringify({
+                caseStatuses: caseStatusesPayload,
+                notifications: {
+                  emails: emails,
+                  notifyOnLead: notifyOnLead,
+                  notifyOnDonation: notifyOnDonation,
+                  notifyOnBooking: notifyOnBooking,
+                  notifyOnFeedback: notifyOnFeedback,
+                },
+              }),
+            });
+            if (!currentProjectConfig) currentProjectConfig = {};
+            currentProjectConfig.notifications = {
+              emails: emails,
+              notifyOnLead: notifyOnLead,
+              notifyOnDonation: notifyOnDonation,
+              notifyOnBooking: notifyOnBooking,
+              notifyOnFeedback: notifyOnFeedback,
+            };
+            setNotificationsConfigStatus('Збережено', false);
+          } catch (err) {
+            console.error('Failed to save notifications config', err);
+            setNotificationsConfigStatus('Помилка збереження', true);
+          }
+        }
+
+        if (openNotificationsConfigBtn) {
+          openNotificationsConfigBtn.addEventListener('click', function () {
+            openNotificationsConfigModal();
+          });
+        }
+        if (notificationsConfigClose) {
+          notificationsConfigClose.addEventListener('click', function () {
+            closeNotificationsConfigModal();
+          });
+        }
+        if (notificationsConfigSave) {
+          notificationsConfigSave.addEventListener('click', function () {
+            saveNotificationsConfig();
+          });
+        }
+
+
+caseModalClose.addEventListener('click', function () {
+                  closeCaseModal();
         });
         caseModalCancel.addEventListener('click', function () {
           if (!currentCaseId) {
@@ -1528,7 +2095,9 @@ tabs.forEach(function (btn) {
               dataCard.style.display = '';
               logoutBtn.style.display = 'inline-flex';
               setStatus('Сесія відновлена', false);
-              loadData();
+              loadProjectConfig().finally(function () {
+                loadData();
+              });
             })
             .catch(function () {
               setToken(null);

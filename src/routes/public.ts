@@ -1,6 +1,7 @@
 import express from 'express';
 import { z, ZodError } from 'zod';
 import prisma from '../db/client';
+import { sendNotificationMail } from '../services/mailer';
 
 const router = express.Router();
 
@@ -81,6 +82,23 @@ const publicFeedbackSchema = z
     }
   );
 
+
+function getNotificationConfig(project: any) {
+  const config = (project && (project as any).config) || {};
+  const notifications = (config as any).notifications || {};
+  const emails = Array.isArray(notifications.emails) ? notifications.emails : [];
+  return {
+    emails,
+    notifyOnLead:
+      typeof notifications.notifyOnLead === 'boolean' ? notifications.notifyOnLead : true,
+    notifyOnDonation:
+      typeof notifications.notifyOnDonation === 'boolean' ? notifications.notifyOnDonation : true,
+    notifyOnBooking:
+      typeof notifications.notifyOnBooking === 'boolean' ? notifications.notifyOnBooking : true,
+    notifyOnFeedback:
+      typeof notifications.notifyOnFeedback === 'boolean' ? notifications.notifyOnFeedback : true,
+  };
+}
 // Unified handler for public forms
 router.post('/forms/:projectSlug/:formKey', async (req, res) => {
   try {
@@ -129,6 +147,29 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         });
       } catch (caseError) {
         console.error('Error creating case for lead', caseError);
+      }
+
+      const notifCfg = getNotificationConfig(project);
+      if (notifCfg.notifyOnLead && notifCfg.emails.length) {
+        const subject = `Новий лід з сайту — ${project.name}`;
+        const lines: string[] = [];
+        if (name) lines.push(`Ім'я: ${name}`);
+        if (email) lines.push(`Email: ${email}`);
+        if (phone) lines.push(`Телефон: ${phone}`);
+        if (message) lines.push(`Повідомлення: ${message}`);
+        if (source) lines.push(`Джерело: ${source}`);
+        if (leadCase && leadCase.id) {
+          lines.push(`Case ID: ${leadCase.id}`);
+        }
+        const text = lines.join('\n');
+        await sendNotificationMail({
+          kind: 'lead',
+          projectName: project.name,
+          projectSlug: project.slug,
+          to: notifCfg.emails,
+          subject,
+          text,
+        });
       }
 
       return res.status(201).json({
@@ -213,6 +254,30 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         },
       });
 
+      const notifCfg = getNotificationConfig(project);
+      if (notifCfg.notifyOnDonation && notifCfg.emails.length) {
+        const subject = `Нове пожертвування — ${project.name}`;
+        const lines: string[] = [];
+        if (name) lines.push(`Ім'я: ${name}`);
+        if (email) lines.push(`Email: ${email}`);
+        if (phone) lines.push(`Телефон: ${phone}`);
+        lines.push(`Сума: ${amount} UAH`);
+        if (message) lines.push(`Коментар: ${message}`);
+        if (source) lines.push(`Джерело: ${source}`);
+        if (donationCase && donationCase.id) {
+          lines.push(`Case ID: ${donationCase.id}`);
+        }
+        const text = lines.join('\n');
+        await sendNotificationMail({
+          kind: 'donation',
+          projectName: project.name,
+          projectSlug: project.slug,
+          to: notifCfg.emails,
+          subject,
+          text,
+        });
+      }
+
       return res.status(201).json({
         contact,
         case: donationCase,
@@ -282,6 +347,34 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         },
       });
 
+      const notifCfg = getNotificationConfig(project);
+      if (notifCfg.notifyOnBooking && notifCfg.emails.length) {
+        const subject = `Нове бронювання — ${project.name}`;
+        const lines: string[] = [];
+        if (name) lines.push(`Ім'я: ${name}`);
+        if (email) lines.push(`Email: ${email}`);
+        if (phone) lines.push(`Телефон: ${phone}`);
+        if (service) lines.push(`Послуга: ${service}`);
+        if (date || time) {
+          const dt = [date, time].filter(Boolean).join(' ');
+          lines.push(`Коли: ${dt}`);
+        }
+        if (message) lines.push(`Коментар: ${message}`);
+        if (source) lines.push(`Джерело: ${source}`);
+        if (bookingCase && bookingCase.id) {
+          lines.push(`Case ID: ${bookingCase.id}`);
+        }
+        const text = lines.join('\n');
+        await sendNotificationMail({
+          kind: 'booking',
+          projectName: project.name,
+          projectSlug: project.slug,
+          to: notifCfg.emails,
+          subject,
+          text,
+        });
+      }
+
       return res.status(201).json({
         contact,
         case: bookingCase,
@@ -349,6 +442,32 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
           description: description || null,
         },
       });
+
+      const notifCfg = getNotificationConfig(project);
+      if (notifCfg.notifyOnFeedback && notifCfg.emails.length) {
+        const subject = `Новий відгук — ${project.name}`;
+        const lines: string[] = [];
+        if (name) lines.push(`Ім'я: ${name}`);
+        if (email) lines.push(`Email: ${email}`);
+        if (phone) lines.push(`Телефон: ${phone}`);
+        if (typeof rating === 'number' && !Number.isNaN(rating)) {
+          lines.push(`Оцінка: ${rating}/5`);
+        }
+        if (message) lines.push(`Відгук: ${message}`);
+        if (source) lines.push(`Джерело: ${source}`);
+        if (feedbackCase && feedbackCase.id) {
+          lines.push(`Case ID: ${feedbackCase.id}`);
+        }
+        const text = lines.join('\n');
+        await sendNotificationMail({
+          kind: 'feedback',
+          projectName: project.name,
+          projectSlug: project.slug,
+          to: notifCfg.emails,
+          subject,
+          text,
+        });
+      }
 
       return res.status(201).json({
         contact,

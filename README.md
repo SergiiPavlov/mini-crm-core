@@ -387,3 +387,38 @@ This is meant as a lightweight way to inspect data coming from public widgets wi
 - The admin UI (`/admin`) allows you to click on a case row to open a detail modal,
   see full description and contact, and edit internal notes.
 - Notes are saved via `PATCH /cases/:id` with `{ internalNote: string }`.
+
+
+## Email notifications (Stage 2)
+
+Mini CRM can send simple email notifications about new public form submissions (leads, donations, bookings, feedback).
+
+### Environment variables (SMTP)
+
+To enable notifications, configure these variables in your `.env`:
+
+- `SMTP_HOST` — SMTP server host
+- `SMTP_PORT` — SMTP port (usually 465 or 587)
+- `SMTP_USER` — SMTP username/login
+- `SMTP_PASSWORD` — SMTP password
+- `SMTP_FROM` — email address used in the From: header
+
+If any of these variables is missing, the backend will not crash: notifications will be logged to console and skipped.
+
+### Project-level config
+
+Each project has a `config.notifications` object:
+
+```json
+{
+  "notifications": {
+    "emails": ["you@example.com"],
+    "notifyOnLead": true,
+    "notifyOnDonation": true,
+    "notifyOnBooking": true,
+    "notifyOnFeedback": true
+  }
+}
+```
+
+Currently the notifications config is not editable from the admin UI and can be updated via `/projects/current/config` or directly in the database.
