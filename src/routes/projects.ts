@@ -1,6 +1,8 @@
 import express from 'express';
 import { z, ZodError } from 'zod';
 import prisma from '../db/client';
+import { requireAuth } from '../middleware/auth';
+import { AuthRequest } from '../types/auth';
 
 const router = express.Router();
 
@@ -12,47 +14,239 @@ const createProjectSchema = z.object({
     .regex(/^[a-z0-9-]+$/i, 'slug can contain letters, numbers and dashes only'),
 });
 
-// GET /projects - list all projects
+const caseStatusConfigItemSchema = z.object({
+  code: z.string().min(1, 'code is required'),
+  label: z.string().min(1, 'label is required'),
+  rowBg: z.string().min(1, 'rowBg is required').optional().nullable(),
+});
+
+const updateProjectConfigSchema = z.object({
+  caseStatuses: z.array(caseStatusConfigItemSchema).min(1, 'at least one status is required'),
+  notifications: z
+    .object({
+      emails: z.array(z.string().email()).optional(),
+      notifyOnLead: z.boolean().optional(),
+      notifyOnDonation: z.boolean().optional(),
+      notifyOnBooking: z.boolean().optional(),
+      notifyOnFeedback: z.boolean().optional(),
+    })
+    .partial()
+    .optional(),
+});
+
+const DEFAULT_PROJECT_CONFIG = {
+  caseStatuses: [
+    { code: 'new', label: 'Новий', rowBg: '#fef2f2' },
+    { code: 'in_progress', label: 'В прогресі', rowBg: '#fffbeb' },
+    { code: 'done', label: 'Завершено', rowBg: '#ecfdf3' },
+  ],
+  notifications: {
+    emails: [],
+    notifyOnLead: true,
+    notifyOnDonation: true,
+    notifyOnBooking: true,
+    notifyOnFeedback: true,
+  },
+};
+
+// GET /projects— list all projects (simple admin/debug endpoint)
 router.get('/', async (_req, res) => {
   try {
     const projects = await prisma.project.findMany({
-      orderBy: { createdAt: 'desc' },
+      orderBy: { id: 'asc' },
     });
-    res.json(projects);
+
+    const result = projects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      slug: p.slug,
+      config: p.config ?? null,
+    }));
+
+    return res.json(result);
   } catch (error) {
-    console.error('Error fetching projects', error);
-    res.status(500).json({ error: 'Failed to fetch projects' });
+    console.error('Failed to list projects', error);
+    return res.status(500).json({ error: 'Failed to list projects' });
   }
 });
 
-// POST /projects - create a new project
-router.post('/', async (req, res) => {
+// GET /projects/current — project for current authenticated user
+router.get('/current', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const { name, slug } = createProjectSchema.parse(req.body);
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
-    const project = await prisma.project.create({
-      data: {
-        name,
-        slug,
-      },
+    const project = await prisma.project.findUnique({
+      where: { id: user.projectId },
     });
 
-    res.status(201).json(project);
-  } catch (error: any) {
-    console.error('Error creating project', error);
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found for current user' });
+    }
+
+    let config: any = project.config ?? {};
+    if (!config || typeof config !== 'object') {
+      config = {};
+    }
+
+    if (!Array.isArray(config.caseStatuses) || config.caseStatuses.length === 0) {
+      config.caseStatuses = DEFAULT_PROJECT_CONFIG.caseStatuses;
+    }
+
+    if (!config.notifications || typeof config.notifications !== 'object') {
+      config.notifications = { ...DEFAULT_PROJECT_CONFIG.notifications };
+    } else {
+      config.notifications = {
+        emails: Array.isArray(config.notifications.emails)
+          ? config.notifications.emails
+          : [],
+        notifyOnLead:
+          typeof config.notifications.notifyOnLead === 'boolean'
+            ? config.notifications.notifyOnLead
+            : DEFAULT_PROJECT_CONFIG.notifications.notifyOnLead,
+        notifyOnDonation:
+          typeof config.notifications.notifyOnDonation === 'boolean'
+            ? config.notifications.notifyOnDonation
+            : DEFAULT_PROJECT_CONFIG.notifications.notifyOnDonation,
+        notifyOnBooking:
+          typeof config.notifications.notifyOnBooking === 'boolean'
+            ? config.notifications.notifyOnBooking
+            : DEFAULT_PROJECT_CONFIG.notifications.notifyOnBooking,
+        notifyOnFeedback:
+          typeof config.notifications.notifyOnFeedback === 'boolean'
+            ? config.notifications.notifyOnFeedback
+            : DEFAULT_PROJECT_CONFIG.notifications.notifyOnFeedback,
+      };
+    }
+
+    return res.json({
+      id: project.id,
+      name: project.name,
+      slug: project.slug,
+      config,
+    });
+  } catch (error) {
+    console.error('Failed to load current project', error);
+    return res.status(500).json({ error: 'Failed to load current project' });
+  }
+});
+
+// PATCH /projects/current/config — update project config (caseStatuses)
+router.patch('/current/config', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const parsed = updateProjectConfigSchema.parse(req.body);
+
+    const project = await prisma.project.findUnique({
+      where: { id: user.projectId },
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found for current user' });
+    }
+
+    let existingConfig: any = project.config ?? {};
+    if (!existingConfig || typeof existingConfig !== 'object') {
+      existingConfig = {};
+    }
+
+    const nextConfig: any = {
+      ...existingConfig,
+      caseStatuses: parsed.caseStatuses.map((item) => ({
+        code: item.code,
+        label: item.label,
+        rowBg: item.rowBg ?? existingConfig?.caseStatuses?.find((s: any) => s.code === item.code)?.rowBg ?? undefined,
+      })),
+    };
+
+    if (parsed.notifications) {
+      const existingNotifications = (existingConfig && (existingConfig as any).notifications) || {};
+      nextConfig.notifications = {
+        emails: parsed.notifications.emails ?? existingNotifications.emails ?? [],
+        notifyOnLead:
+          typeof parsed.notifications.notifyOnLead === 'boolean'
+            ? parsed.notifications.notifyOnLead
+            : existingNotifications.notifyOnLead ?? DEFAULT_PROJECT_CONFIG.notifications.notifyOnLead,
+        notifyOnDonation:
+          typeof parsed.notifications.notifyOnDonation === 'boolean'
+            ? parsed.notifications.notifyOnDonation
+            : existingNotifications.notifyOnDonation ?? DEFAULT_PROJECT_CONFIG.notifications.notifyOnDonation,
+        notifyOnBooking:
+          typeof parsed.notifications.notifyOnBooking === 'boolean'
+            ? parsed.notifications.notifyOnBooking
+            : existingNotifications.notifyOnBooking ?? DEFAULT_PROJECT_CONFIG.notifications.notifyOnBooking,
+        notifyOnFeedback:
+          typeof parsed.notifications.notifyOnFeedback === 'boolean'
+            ? parsed.notifications.notifyOnFeedback
+            : existingNotifications.notifyOnFeedback ?? DEFAULT_PROJECT_CONFIG.notifications.notifyOnFeedback,
+      };
+    }
+
+    const updated = await prisma.project.update({
+      where: { id: project.id },
+      data: { config: nextConfig },
+    });
+
+    return res.json({
+      id: updated.id,
+      name: updated.name,
+      slug: updated.slug,
+      config: nextConfig,
+    });
+  } catch (error) {
+    console.error('Failed to update project config', error);
 
     if (error instanceof ZodError) {
       return res.status(400).json({
-        error: 'Validation error',
+        error: 'Invalid config payload',
         details: error.errors,
       });
     }
 
-    // Handle unique constraint on slug
+    return res.status(500).json({ error: 'Failed to update project config' });
+  }
+});
+
+// POST /projects — create a new project
+router.post('/', async (req, res) => {
+  try {
+    const parsed = createProjectSchema.parse(req.body);
+
+    const project = await prisma.project.create({
+      data: {
+        name: parsed.name,
+        slug: parsed.slug,
+        config: DEFAULT_PROJECT_CONFIG,
+      },
+    });
+
+    return res.status(201).json({
+      id: project.id,
+      name: project.name,
+      slug: project.slug,
+      config: project.config,
+    });
+  } catch (error: any) {
+    console.error('Failed to create project', error);
+
+    if (error instanceof ZodError) {
+      return res.status(400).json({
+        error: 'Invalid project payload',
+        details: error.errors,
+      });
+    }
+
     if (error.code === 'P2002') {
       return res.status(409).json({ error: 'Project slug already exists' });
     }
-    res.status(500).json({ error: 'Failed to create project' });
+
+    return res.status(500).json({ error: 'Failed to create project' });
   }
 });
 

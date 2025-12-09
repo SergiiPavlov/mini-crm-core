@@ -16,44 +16,43 @@ function signToken(payload: { userId: number; email: string; role: string; proje
 }
 
 const registerOwnerSchema = z.object({
-  email: z.string().email('Valid email is required'),
+  email: z.string().email('Invalid email'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   projectSlug: z.string().min(1, 'projectSlug is required'),
 });
 
 const loginSchema = z.object({
-  email: z.string().email('Valid email is required'),
-  password: z.string().min(1, 'password is required'),
+  email: z.string().email('Invalid email'),
+  password: z.string().min(1, 'Password is required'),
 });
 
-// POST /auth/register-owner
-// Body: { email, password, projectSlug }
+// POST /auth/register-owner — create first owner for a project
 router.post('/register-owner', async (req, res) => {
   try {
-    const { email, password, projectSlug } = registerOwnerSchema.parse(req.body);
+    const parsed = registerOwnerSchema.parse(req.body);
 
     const project = await prisma.project.findUnique({
-      where: { slug: projectSlug },
+      where: { slug: parsed.projectSlug },
     });
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
 
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
+    const existingUsers = await prisma.user.count({
+      where: { projectId: project.id },
     });
 
-    if (existingUser) {
-      return res.status(409).json({ error: 'User with this email already exists' });
+    if (existingUsers > 0) {
+      return res.status(400).json({ error: 'Owner already exists for this project' });
     }
 
-    const hashedPassword = await bcrypt.hash(password, 10);
+    const passwordHash = await bcrypt.hash(parsed.password, 10);
 
     const user = await prisma.user.create({
       data: {
-        email,
-        password: hashedPassword,
+        email: parsed.email,
+        password: passwordHash,
         role: 'owner',
         projectId: project.id,
       },
@@ -67,20 +66,20 @@ router.post('/register-owner', async (req, res) => {
     });
 
     return res.status(201).json({
+      token,
       user: {
         id: user.id,
         email: user.email,
         role: user.role,
         projectId: user.projectId,
       },
-      token,
     });
-  } catch (error: any) {
-    console.error('Error in /auth/register-owner', error);
+  } catch (error) {
+    console.error('Failed to register owner', error);
 
     if (error instanceof ZodError) {
       return res.status(400).json({
-        error: 'Validation error',
+        error: 'Invalid payload',
         details: error.errors,
       });
     }
@@ -90,23 +89,21 @@ router.post('/register-owner', async (req, res) => {
 });
 
 // POST /auth/login
-// Body: { email, password }
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = loginSchema.parse(req.body);
+    const parsed = loginSchema.parse(req.body);
 
     const user = await prisma.user.findUnique({
-      where: { email },
+      where: { email: parsed.email },
     });
 
-    if (!user) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    if (!user || !user.password) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
-
-    if (!isMatch) {
-      return res.status(401).json({ error: 'Invalid email or password' });
+    const passwordMatches = await bcrypt.compare(parsed.password, (user as any).password);
+    if (!passwordMatches) {
+      return res.status(401).json({ error: 'Invalid credentials' });
     }
 
     const token = signToken({
@@ -117,20 +114,20 @@ router.post('/login', async (req, res) => {
     });
 
     return res.json({
+      token,
       user: {
         id: user.id,
         email: user.email,
         role: user.role,
         projectId: user.projectId,
       },
-      token,
     });
-  } catch (error: any) {
-    console.error('Error in /auth/login', error);
+  } catch (error) {
+    console.error('Failed to login', error);
 
     if (error instanceof ZodError) {
       return res.status(400).json({
-        error: 'Validation error',
+        error: 'Invalid payload',
         details: error.errors,
       });
     }
