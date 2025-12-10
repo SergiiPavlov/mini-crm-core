@@ -3,6 +3,7 @@ import { z, ZodError } from 'zod';
 import prisma from '../db/client';
 import { requireAuth } from '../middleware/auth';
 import { AuthRequest } from '../types/auth';
+import { DEFAULT_PROJECT_CONFIG } from './projects';
 
 const router = express.Router();
 
@@ -55,6 +56,66 @@ const listTransactionsQuerySchema = z.object({
   maxAmount: z.string().optional(),
 });
 
+type TransactionCategoryType = 'income' | 'expense';
+
+type TransactionCategoryConfig = {
+  code?: string;
+  type?: TransactionCategoryType;
+};
+
+type TransactionTypeMap = Record<string, TransactionCategoryType>;
+
+/**
+ * Build a map categoryCode -> 'income' | 'expense' for a given project.
+ * Falls back to DEFAULT_PROJECT_CONFIG.transactionCategories when project.config is empty.
+ */
+async function getProjectTransactionCategoryTypeMap(projectId: number): Promise<TransactionTypeMap> {
+  const project = await prisma.project.findUnique({
+    where: { id: projectId },
+  });
+
+  const config = (project?.config as any) || {};
+  const rawCategories: TransactionCategoryConfig[] =
+    (Array.isArray(config.transactionCategories) && config.transactionCategories.length > 0
+      ? config.transactionCategories
+      : DEFAULT_PROJECT_CONFIG.transactionCategories) ?? [];
+
+  const map: TransactionTypeMap = {};
+
+  for (const item of rawCategories) {
+    if (!item || !item.code) continue;
+    if (item.type !== 'income' && item.type !== 'expense') continue;
+    map[item.code] = item.type;
+  }
+
+  return map;
+}
+
+/**
+ * Decide whether a transaction is effectively income or expense.
+ * Priority:
+ *   1) category type from project config (if category is known),
+ *   2) transaction.type field as a fallback.
+ */
+function getEffectiveTransactionType(
+  tx: { type: string | null; category: string | null },
+  categoryTypeMap: TransactionTypeMap
+): TransactionCategoryType | null {
+  const categoryCode = tx.category ?? undefined;
+  if (categoryCode && categoryTypeMap[categoryCode]) {
+    return categoryTypeMap[categoryCode];
+  }
+
+  if (tx.type === 'income' || tx.type === 'expense') {
+    return tx.type;
+  }
+
+  return null;
+}
+
+
+
+
 // GET /transactions - list transactions for current project with filters
 router.get('/', requireAuth, async (req: AuthRequest, res) => {
   try {
@@ -67,9 +128,13 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
 
     const where: any = { projectId };
 
-    if (query.type) {
-      where.type = query.type;
-    }
+    // NOTE:
+    // We intentionally do NOT filter by query.type at the database level anymore.
+    // The "type" of a transaction is now primarily determined by its category
+    // in project.config.transactionCategories (income/expense). We first load
+    // all matching transactions for the project and then apply the type filter
+    // in memory using the effective type (category -> income/expense fallback
+    // to transaction.type).
 
     if (query.category) {
       where.category = query.category;
@@ -113,16 +178,34 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
       where.amount = amount;
     }
 
-    const transactions = await prisma.transaction.findMany({
-      where,
-      orderBy: { happenedAt: 'desc' },
-      include: {
-        contact: true,
-        case: true,
-      },
-    });
+    const [transactions, categoryTypeMap] = await Promise.all([
+      prisma.transaction.findMany({
+        where,
+        orderBy: { happenedAt: 'desc' },
+        include: {
+          contact: true,
+          case: true,
+        },
+      }),
+      getProjectTransactionCategoryTypeMap(projectId),
+    ]);
 
-    return res.json(transactions);
+    let filtered = transactions;
+
+    if (query.type) {
+      filtered = transactions.filter((tx) => {
+        const effectiveType = getEffectiveTransactionType(
+          {
+            type: (tx.type as string | null) ?? null,
+            category: (tx.category as string | null) ?? null,
+          },
+          categoryTypeMap
+        );
+        return effectiveType === query.type;
+      });
+    }
+
+    return res.json(filtered);
   } catch (error: any) {
     console.error('Error fetching transactions', error);
 
@@ -136,6 +219,8 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
     return res.status(500).json({ error: 'Failed to fetch transactions' });
   }
 });
+
+
 
 // GET /transactions/summary - simple totals for income/expense in period
 router.get('/summary', requireAuth, async (req: AuthRequest, res) => {
@@ -172,19 +257,38 @@ router.get('/summary', requireAuth, async (req: AuthRequest, res) => {
       baseWhere.happenedAt = happenedAt;
     }
 
-    const [incomeAgg, expenseAgg] = await Promise.all([
-      prisma.transaction.aggregate({
-        where: { ...baseWhere, type: 'income' },
-        _sum: { amount: true },
+    const [transactions, categoryTypeMap] = await Promise.all([
+      prisma.transaction.findMany({
+        where: baseWhere,
       }),
-      prisma.transaction.aggregate({
-        where: { ...baseWhere, type: 'expense' },
-        _sum: { amount: true },
-      }),
+      getProjectTransactionCategoryTypeMap(projectId),
     ]);
 
-    const totalIncome = Number(incomeAgg._sum.amount || 0);
-    const totalExpense = Number(expenseAgg._sum.amount || 0);
+    let totalIncome = 0;
+    let totalExpense = 0;
+
+    for (const tx of transactions) {
+      const effectiveType = getEffectiveTransactionType(
+        {
+          type: (tx.type as string | null) ?? null,
+          category: (tx.category as string | null) ?? null,
+        },
+        categoryTypeMap
+      );
+
+      if (!effectiveType) continue;
+      if (query.type && effectiveType !== query.type) continue;
+
+      const amount = Number(tx.amount || 0);
+      if (!Number.isFinite(amount)) continue;
+
+      if (effectiveType === 'income') {
+        totalIncome += amount;
+      } else if (effectiveType === 'expense') {
+        totalExpense += amount;
+      }
+    }
+
     const net = totalIncome - totalExpense;
 
     return res.json({
@@ -205,6 +309,7 @@ router.get('/summary', requireAuth, async (req: AuthRequest, res) => {
     return res.status(500).json({ error: 'Failed to fetch transaction summary' });
   }
 });
+
 
 // POST /transactions - create a transaction
 router.post('/', requireAuth, async (req: AuthRequest, res) => {
@@ -350,10 +455,7 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res) => {
 
     const updated = await prisma.transaction.update({
       where: {
-        id_projectId: {
-          id,
-          projectId,
-        },
+        id,
       },
       data: {
         type: data.type,
@@ -406,10 +508,7 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res) => {
 
     await prisma.transaction.delete({
       where: {
-        id_projectId: {
-          id,
-          projectId,
-        },
+        id,
       },
     });
 

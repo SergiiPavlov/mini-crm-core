@@ -369,6 +369,13 @@
         background: #fef2f2;
       }
 
+      .transaction-row {
+        cursor: pointer;
+      }
+      tr.transaction-row:hover td {
+        background: #e0f2fe;
+      }
+
 
       .case-tasks-form {
         display: flex;
@@ -612,7 +619,9 @@
               </div>
               <div class="filter-group">
                 <label for="tx-category-filter" class="muted">Категорія</label>
-                <input id="tx-category-filter" class="form-control" type="text" placeholder="Напр. donation" />
+                <select id="tx-category-filter" class="form-control" style="min-width: 160px;">
+                  <option value="">Усі</option>
+                </select>
               </div>
             </div>
 
@@ -636,6 +645,12 @@
               <div class="filter-group" style="align-self:flex-end;">
                 <button id="tx-apply-filters" class="btn btn-secondary">Застосувати</button>
               </div>
+            </div>
+
+            <div class="filters-row" style="margin-top: 8px;">
+              <button type="button" id="open-transaction-categories-config">
+                Налаштування категорій
+              </button>
             </div>
 
             <div class="summary-row">
@@ -671,6 +686,8 @@
                 </tbody>
               </table>
             </div>
+
+            <div id="transactions-category-summary" style="margin-top:16px;"></div>
           </div>
 
           </div>
@@ -729,7 +746,49 @@
         </div>
 
       
-        <div class="modal-backdrop" id="case-status-config-modal-backdrop" style="display:none;">
+        
+        <div class="modal-backdrop" id="transaction-modal-backdrop" style="display:none;">
+          <div class="modal">
+            <div class="modal-header">
+              <h2 id="transaction-modal-title">Транзакція</h2>
+              <button type="button" class="btn-secondary" id="transaction-modal-close">Закрити</button>
+            </div>
+            <div class="modal-body">
+              <div class="field">
+                <label>Дата</label>
+                <div id="transaction-modal-date"></div>
+              </div>
+              <div class="field">
+                <label>Тип</label>
+                <div id="transaction-modal-type"></div>
+              </div>
+              <div class="field">
+                <label>Сума</label>
+                <div id="transaction-modal-amount"></div>
+              </div>
+              <div class="field">
+                <label>Категорія</label>
+                <select id="transaction-modal-category" class="form-control"></select>
+              </div>
+              <div class="field">
+                <label>Опис</label>
+                <textarea
+                  id="transaction-modal-description"
+                  class="form-control"
+                  rows="3"
+                  placeholder="Опис транзакції (необов'язково)"
+                ></textarea>
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button type="button" id="transaction-modal-save">Зберегти</button>
+              <button type="button" class="btn-secondary" id="transaction-modal-cancel">Скасувати</button>
+            </div>
+          </div>
+        </div>
+
+
+<div class="modal-backdrop" id="case-status-config-modal-backdrop" style="display:none;">
           <div class="modal">
             <div class="modal-header">
               <h2>Налаштування статусів звернень</h2>
@@ -742,7 +801,20 @@
         
                 </div>
 
-        <div class="modal-backdrop" id="notifications-config-modal-backdrop" style="display:none;">
+        
+        <div class="modal-backdrop" id="transaction-categories-config-modal-backdrop" style="display:none;">
+          <div class="modal">
+            <div class="modal-header">
+              <h2>Налаштування категорій транзакцій</h2>
+              <button type="button" class="btn-secondary" id="transaction-categories-config-close">Закрити</button>
+            </div>
+            <div class="modal-body">
+              <div id="transaction-categories-config-editor"></div>
+            </div>
+          </div>
+        </div>
+
+<div class="modal-backdrop" id="notifications-config-modal-backdrop" style="display:none;">
           <div class="modal">
             <div class="modal-header">
               <h2>Налаштування сповіщень</h2>
@@ -775,18 +847,8 @@
                 </div>
                 <div class="config-actions">
                   <button type="button" id="notifications-config-save">Зберегти сповіщення</button>
-                  <span id="notifications-config-status" class="muted"></span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-</div>
-
-</main>
-    </div>
-
-    <script>
+                  <span id="notifications-config-status" class="status"></span>
+      <script>
       (function () {
         var apiBase = window.location.origin;
         var tokenKey = 'mini-crm-admin-token';
@@ -796,6 +858,19 @@
           { code: 'in_progress', label: 'In progress', rowBg: '#fffbeb' },
           { code: 'done', label: 'Done', rowBg: '#ecfdf3' },
         ];
+        var DEFAULT_TRANSACTION_CATEGORY_CONFIG = [
+          { code: 'donation', label: 'Пожертвування', color: '#3b82f6', type: 'income', order: 1 },
+          { code: 'service', label: 'Послуга', color: '#22c55e', type: 'income', order: 2 },
+          { code: 'refund', label: 'Повернення', color: '#ef4444', type: 'expense', order: 3 },
+        ];
+
+        var transactionCategories = DEFAULT_TRANSACTION_CATEGORY_CONFIG.slice();
+        var transactionCategoryConfigMap = {};
+        transactionCategories.forEach(function (c) {
+          transactionCategoryConfigMap[c.code] = c;
+        });
+
+
 
         var CASE_STATUSES = DEFAULT_CASE_STATUS_CONFIG.map(function (s) { return s.code; });
         var caseStatusConfigMap = {};
@@ -809,43 +884,89 @@
           return caseStatusConfigMap[code] || null;
         }
 
+        
         function applyProjectConfigFromServer(config) {
           try {
-            if (!config || !Array.isArray(config.caseStatuses) || !config.caseStatuses.length) {
+            if (!config || typeof config !== 'object') {
               return;
             }
             currentProjectConfig = config;
-            var map = {};
-            var codes = [];
-            config.caseStatuses.forEach(function (item) {
-              if (!item || !item.code) return;
-              var code = String(item.code);
-              var base = caseStatusConfigMap[code] || { code: code };
-              map[code] = {
-                code: code,
-                label: item.label || base.label || code,
-                rowBg: item.rowBg || base.rowBg || '',
-              };
-              codes.push(code);
-            });
-            if (!codes.length) return;
-            CASE_STATUSES = codes;
-            caseStatusConfigMap = map;
-            updateCaseStatusCssFromConfig();
-            updateCaseFiltersLabels();
-            // Перерендеримо кейси з оновленими статусами, якщо вони вже завантажені
-            if (typeof renderCases === 'function') {
-              renderCases(lastCases);
+
+            // Статуси кейсів
+            if (Array.isArray(config.caseStatuses) && config.caseStatuses.length) {
+              var map = {};
+              var codes = [];
+              config.caseStatuses.forEach(function (item) {
+                if (!item || !item.code) return;
+                var code = String(item.code);
+                var base = caseStatusConfigMap[code] || { code: code };
+                map[code] = {
+                  code: code,
+                  label: item.label || base.label || code,
+                  rowBg: item.rowBg || base.rowBg || '',
+                };
+                codes.push(code);
+              });
+              if (codes.length) {
+                CASE_STATUSES = codes;
+                caseStatusConfigMap = map;
+                updateCaseStatusCssFromConfig();
+                if (typeof updateCaseFiltersLabels === 'function') {
+                  updateCaseFiltersLabels();
+                }
+                if (typeof renderCases === 'function') {
+                  renderCases(lastCases);
+                }
+                if (typeof renderCaseStatusConfigEditor === 'function') {
+                  renderCaseStatusConfigEditor();
+                }
+              }
             }
-            if (typeof renderCaseStatusConfigEditor === 'function') {
-              renderCaseStatusConfigEditor();
+
+            // Категорії транзакцій
+            if (Array.isArray(config.transactionCategories) && config.transactionCategories.length) {
+              var txItems = config.transactionCategories.slice();
+              var txMap = {};
+              txItems.forEach(function (cat, index) {
+                if (!cat || !cat.code) return;
+                var code = String(cat.code);
+                var label = cat.label || code;
+                var color = cat.color || '#6b7280';
+                var type = cat.type === 'expense' ? 'expense' : 'income';
+                var order =
+                  typeof cat.order === 'number' && !Number.isNaN(cat.order)
+                    ? cat.order
+                    : index + 1;
+                var normalized = { code: code, label: label, color: color, type: type, order: order };
+                txMap[code] = normalized;
+              });
+
+              var txArray = Object.keys(txMap)
+                .map(function (code) { return txMap[code]; })
+                .sort(function (a, b) {
+                  return (a.order || 0) - (b.order || 0);
+                });
+
+              if (txArray.length) {
+                transactionCategories = txArray;
+                transactionCategoryConfigMap = {};
+                txArray.forEach(function (cat) {
+                  transactionCategoryConfigMap[cat.code] = cat;
+                });
+                if (typeof renderTransactionCategoriesConfigEditor === 'function') {
+                  renderTransactionCategoriesConfigEditor();
+                }
+                if (typeof updateTransactionCategoryFilterOptions === 'function') {
+                  updateTransactionCategoryFilterOptions();
+                }
+              }
             }
           } catch (e) {
             console.error('Failed to apply project config', e);
           }
         }
 
-        function updateCaseStatusCssFromConfig() {
+function updateCaseStatusCssFromConfig() {
           try {
             var root = document.documentElement;
             if (!root || !caseStatusConfigMap) return;
@@ -1058,7 +1179,212 @@ var currentCaseFilter = 'all';
         var logoutBtn = document.getElementById('logout-btn');
         var loginStatus = document.getElementById('login-status');
         var userInfoEl = document.getElementById('user-info');
-        var dataCard = document.getElementById('data-card');
+        
+        function getTransactionCategoryMeta(code) {
+          return transactionCategoryConfigMap[code] || null;
+        }
+
+        function renderTransactionCategoriesConfigEditor() {
+          var container = document.getElementById('transaction-categories-config-editor');
+          if (!container) return;
+
+          var items = Array.isArray(transactionCategories)
+            ? transactionCategories.slice()
+            : [];
+
+          if (!items.length) {
+            container.innerHTML =
+              '<div class="config-panel">' +
+              '<div class="config-panel-title">Налаштування категорій транзакцій</div>' +
+              '<div class="config-panel-subtitle">Категорії ще не завантажені. Спробуйте перезавантажити сторінку або зберегти нові категорії.</div>' +
+              '</div>';
+            return;
+          }
+
+          var html = '';
+          html += '<div class="config-panel">';
+          html += '<div class="config-panel-title">Налаштування категорій транзакцій</div>';
+          html += '<div class="config-panel-subtitle">Тут можна змінити назви, кольори, тип та порядок відображення категорій транзакцій.</div>';
+          html += '<table class="config-table"><thead><tr>';
+          html += '<th>Код (code)</th>';
+          html += '<th>Назва (label)</th>';
+          html += '<th>Колір</th>';
+          html += '<th>Тип</th>';
+          html += '<th>Порядок</th>';
+          html += '<th></th>';
+          html += '</tr></thead><tbody>';
+
+          items.forEach(function (cat) {
+            var code = cat.code || '';
+            var label = cat.label || code;
+            var color = normalizeColor(cat.color || '#6b7280');
+            var type = cat.type === 'expense' ? 'expense' : 'income';
+            var order = typeof cat.order === 'number' ? cat.order : '';
+
+            html += '<tr data-tx-cat-code="' + escapeHtml(code) + '">';
+            html += '<td><input type="text" class="tx-cat-code-input" value="' + escapeHtml(code) + '"' + (code ? ' disabled' : '') + '/></td>';
+            html += '<td><input type="text" class="tx-cat-label-input" value="' + escapeHtml(label) + '"/></td>';
+            html += '<td><input type="color" class="tx-cat-color-input" value="' + color + '"/></td>';
+            html += '<td>';
+            html += '<select class="tx-cat-type-select">';
+            html += '<option value="income"' + (type === 'income' ? ' selected' : '') + '>Доходи</option>';
+            html += '<option value="expense"' + (type === 'expense' ? ' selected' : '') + '>Витрати</option>';
+            html += '</select>';
+            html += '</td>';
+            html += '<td><input type="number" class="tx-cat-order-input" value="' + escapeHtml(String(order)) + '" /></td>';
+            html += '<td><button type="button" class="btn-secondary tx-cat-delete-btn">Видалити</button></td>';
+            html += '</tr>';
+          });
+
+          html += '</tbody></table>';
+          html += '<div class="config-actions">';
+          html += '<button type="button" class="btn btn-secondary" id="add-transaction-category-btn">Додати категорію</button>';
+          html += '<button type="button" class="btn btn-primary" id="save-transaction-categories-config-btn" style="margin-left:4px;">Зберегти категорії</button>';
+          html += '<div id="transaction-categories-config-status" class="status" style="margin-left:4px;"></div>';
+          html += '</div>';
+          html += '</div>';
+
+          container.innerHTML = html;
+
+          var addBtn = document.getElementById('add-transaction-category-btn');
+          if (addBtn) {
+            addBtn.addEventListener('click', function () {
+              // Додаємо новий порожній запис і перерендерюємо
+              var nextIndex = Array.isArray(transactionCategories) ? transactionCategories.length + 1 : 1;
+              var newCode = 'category_' + nextIndex;
+              var next = Array.isArray(transactionCategories) ? transactionCategories.slice() : [];
+              next.push({
+                code: newCode,
+                label: newCode,
+                color: '#6b7280',
+                type: 'income',
+                order: nextIndex,
+              });
+              transactionCategories = next;
+              renderTransactionCategoriesConfigEditor();
+            });
+          }
+
+          var saveBtn = document.getElementById('save-transaction-categories-config-btn');
+          if (saveBtn) {
+            saveBtn.addEventListener('click', function () {
+              saveTransactionCategoriesConfig();
+            });
+          }
+
+          var deleteButtons = container.querySelectorAll('.tx-cat-delete-btn');
+          if (deleteButtons && deleteButtons.length) {
+            Array.prototype.forEach.call(deleteButtons, function (btn) {
+              btn.addEventListener('click', function () {
+                var row = btn.closest('tr');
+                if (!row) return;
+                var code = row.getAttribute('data-tx-cat-code');
+                if (!code) return;
+                var next = (transactionCategories || []).filter(function (cat) {
+                  return cat.code !== code;
+                });
+                transactionCategories = next;
+                renderTransactionCategoriesConfigEditor();
+              });
+            });
+          }
+        }
+
+        function saveTransactionCategoriesConfig() {
+          var container = document.getElementById('transaction-categories-config-editor');
+          if (!container) return;
+
+          var statusEl = document.getElementById('transaction-categories-config-status');
+          function setStatus(msg, isError) {
+            if (!statusEl) return;
+            statusEl.textContent = msg || '';
+            statusEl.style.color = isError ? '#b91c1c' : '#15803d';
+          }
+
+          var rows = container.querySelectorAll('tbody tr[data-tx-cat-code]');
+          if (!rows || !rows.length) {
+            setStatus('Додайте хоча б одну категорію', true);
+            return;
+          }
+
+          var items = [];
+          Array.prototype.forEach.call(rows, function (row, index) {
+            var codeInput = row.querySelector('.tx-cat-code-input');
+            var labelInput = row.querySelector('.tx-cat-label-input');
+            var colorInput = row.querySelector('.tx-cat-color-input');
+            var typeSelect = row.querySelector('.tx-cat-type-select');
+            var orderInput = row.querySelector('.tx-cat-order-input');
+
+            if (!codeInput) return;
+            var code = (codeInput.value || '').trim();
+            if (!code) return;
+
+            var label = (labelInput && labelInput.value ? labelInput.value : '').trim() || code;
+            var color = (colorInput && colorInput.value ? colorInput.value : '').trim() || '#6b7280';
+            var type = typeSelect && typeSelect.value === 'expense' ? 'expense' : 'income';
+            var orderRaw = orderInput && orderInput.value ? Number(orderInput.value) : NaN;
+            var order = !Number.isNaN(orderRaw) ? orderRaw : index + 1;
+
+            items.push({
+              code: code,
+              label: label,
+              color: color,
+              type: type,
+              order: order,
+            });
+          });
+
+          if (!items.length) {
+            setStatus('Додайте хоча б одну категорію', true);
+            return;
+          }
+
+          // Локально оновлюємо конфіг
+          var map = {};
+          items.forEach(function (item) {
+            map[item.code] = item;
+          });
+          var sorted = items.slice().sort(function (a, b) {
+            return (a.order || 0) - (b.order || 0);
+          });
+          transactionCategories = sorted;
+          transactionCategoryConfigMap = {};
+          sorted.forEach(function (cat) {
+            transactionCategoryConfigMap[cat.code] = cat;
+          });
+
+          setStatus('Збереження...', false);
+
+          authedFetch('/projects/current/config', {
+            method: 'PATCH',
+            body: JSON.stringify({ transactionCategories: sorted }),
+          })
+            .then(function (res) {
+              if (!res.ok) {
+                throw new Error('Failed to save transaction categories config');
+              }
+              return res.json();
+            })
+            .then(function (data) {
+              if (data && data.config) {
+                applyProjectConfigFromServer(data.config);
+              }
+              // Обновляем фильтр и таблицу транзакций сразу после сохранения
+              if (typeof updateTransactionCategoryFilterOptions === 'function') {
+                updateTransactionCategoryFilterOptions();
+              }
+              if (Array.isArray(lastTransactions)) {
+                renderTransactions(lastTransactions);
+              }
+              setStatus('Збережено', false);
+            })
+            .catch(function (err) {
+              console.error('Failed to save transaction categories config', err);
+              setStatus('Помилка збереження', true);
+            });
+        }
+
+var dataCard = document.getElementById('data-card');
         var casesTbody = document.getElementById('cases-tbody');
         var contactsTbody = document.getElementById('contacts-tbody');
         var loginCard = document.getElementById('login-card');
@@ -1069,6 +1395,17 @@ var currentCaseFilter = 'all';
         var transactionsTbody = document.getElementById('transactions-tbody');
         var transactionsCountEl = document.getElementById('transactions-count');
         var transactionsDebugEl = document.getElementById('transactions-debug');
+
+        var transactionModalBackdrop = document.getElementById('transaction-modal-backdrop');
+        var transactionModalTitle = document.getElementById('transaction-modal-title');
+        var transactionModalDate = document.getElementById('transaction-modal-date');
+        var transactionModalType = document.getElementById('transaction-modal-type');
+        var transactionModalAmount = document.getElementById('transaction-modal-amount');
+        var transactionModalCategorySelect = document.getElementById('transaction-modal-category');
+        var transactionModalDescription = document.getElementById('transaction-modal-description');
+        var transactionModalSaveBtn = document.getElementById('transaction-modal-save');
+        var transactionModalCancelBtn = document.getElementById('transaction-modal-cancel');
+        var transactionModalCloseBtn = document.getElementById('transaction-modal-close');
 
         var txTypeFilter = document.getElementById('tx-type-filter');
         var txCategoryFilter = document.getElementById('tx-category-filter');
@@ -1081,6 +1418,7 @@ var currentCaseFilter = 'all';
         var summaryIncomeEl = document.getElementById('summary-income');
         var summaryExpenseEl = document.getElementById('summary-expense');
         var summaryNetEl = document.getElementById('summary-net');
+        var transactionsCategorySummaryEl = document.getElementById('transactions-category-summary');
 
         var caseModalBackdrop = document.getElementById('case-modal-backdrop');
         var caseModalClose = document.getElementById('case-modal-close');
@@ -1097,6 +1435,11 @@ var currentCaseFilter = 'all';
         var caseStatusConfigClose = document.getElementById('case-status-config-close');
         var openCaseStatusConfigBtn = document.getElementById('open-case-status-config');
 
+        var transactionCategoriesConfigModalBackdrop = document.getElementById('transaction-categories-config-modal-backdrop');
+        var transactionCategoriesConfigClose = document.getElementById('transaction-categories-config-close');
+        var openTransactionCategoriesConfigBtn = document.getElementById('open-transaction-categories-config');
+
+
         var notificationsConfigModalBackdrop = document.getElementById('notifications-config-modal-backdrop');
         var notificationsConfigClose = document.getElementById('notifications-config-close');
         var notificationsConfigSave = document.getElementById('notifications-config-save');
@@ -1112,6 +1455,7 @@ var currentCaseFilter = 'all';
         var currentCaseInitialInternalNote = '';
         var lastCases = [];
         var lastTransactions = [];
+        var currentTransactionForModal = null;
         var caseTasksForm = document.getElementById('case-tasks-form');
         var caseTaskInput = document.getElementById('case-task-input');
         var caseTasksList = document.getElementById('case-tasks-list');
@@ -1365,11 +1709,138 @@ function renderContacts(contacts) {
         }
 
         
-        function renderTransactions(transactions) {
+        
+        function renderTransactionCategoryBadge(code) {
+          if (!code) return '';
+          var meta = getTransactionCategoryMeta(code) || null;
+          var label = (meta && meta.label) || code;
+          var color = (meta && meta.color) || '#6b7280';
+          var textColor = '#ffffff';
+
+          return (
+            '<span class="tx-category-badge tx-category-badge-' + escapeHtml(code) + '" ' +
+            'style="display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:12px;' +
+            'background-color:' + color + ';color:' + textColor + ';white-space:nowrap;">' +
+            '<span class="tx-category-dot" style="width:6px;height:6px;border-radius:999px;background-color:rgba(255,255,255,0.8);margin-right:6px;"></span>' +
+            escapeHtml(label) +
+            '</span>'
+          );
+        }
+
+        function buildTransactionsCategorySummary(transactions) {
+          var summary = {
+            byCategory: {},
+            totals: {
+              income: 0,
+              expense: 0,
+            },
+          };
+          if (!Array.isArray(transactions) || !transactions.length) {
+            return summary;
+          }
+
+          transactions.forEach(function (t) {
+            if (!t) return;
+            var code = t.category || 'uncategorized';
+            var meta = getTransactionCategoryMeta(t.category);
+            var label = (meta && meta.label) || code;
+            var color = (meta && meta.color) || '#6b7280';
+            var typeFromCategory = meta && meta.type === 'expense'
+              ? 'expense'
+              : meta && meta.type === 'income'
+              ? 'income'
+              : null;
+            var type = typeFromCategory || (t.type === 'expense' ? 'expense' : 'income');
+            var amount = Number(t.amount || 0);
+            if (!summary.byCategory[code]) {
+              summary.byCategory[code] = {
+                code: code,
+                label: label,
+                color: color,
+                income: 0,
+                expense: 0,
+              };
+            }
+            if (type === 'income') {
+              summary.byCategory[code].income += amount;
+              summary.totals.income += amount;
+            } else {
+              summary.byCategory[code].expense += amount;
+              summary.totals.expense += amount;
+            }
+          });
+
+          return summary;
+        }
+
+
+        
+        function updateTransactionCategoryFilterOptions() {
+          if (!txCategoryFilter || !txCategoryFilter.tagName) return;
+          var select = txCategoryFilter;
+          if (String(select.tagName).toLowerCase() !== 'select') return;
+
+          var currentValue = select.value || '';
+
+          while (select.firstChild) {
+            select.removeChild(select.firstChild);
+          }
+
+          var optAll = document.createElement('option');
+          optAll.value = '';
+          optAll.textContent = 'Усі';
+          select.appendChild(optAll);
+
+          if (Array.isArray(transactionCategories) && transactionCategories.length) {
+            transactionCategories.forEach(function (cat) {
+              if (!cat || !cat.code) return;
+              var opt = document.createElement('option');
+              opt.value = cat.code;
+              opt.textContent = cat.label || cat.code;
+              if (cat.code === currentValue) {
+                opt.selected = true;
+              }
+              select.appendChild(opt);
+            });
+          }
+        }
+
+function renderTransactions(transactions) {
           console.log('renderTransactions called, items:', Array.isArray(transactions) ? transactions.length : 'not array');
           lastTransactions = Array.isArray(transactions) ? transactions : [];
+          var categorySummary = buildTransactionsCategorySummary(lastTransactions);
+          if (typeof renderTransactionsCategorySummary === 'function') {
+            renderTransactionsCategorySummary(categorySummary);
+          }
+          if (typeof renderTransactionsSummary === 'function') {
+            try {
+              var totals = categorySummary && categorySummary.totals ? categorySummary.totals : { income: 0, expense: 0 };
+              renderTransactionsSummary({
+                totalIncome: Number(totals.income || 0),
+                totalExpense: Number(totals.expense || 0),
+                net: Number(totals.income || 0) - Number(totals.expense || 0),
+              });
+            } catch (e) {
+              console.error('Failed to render overall transactions summary from categories', e);
+            }
+          }
           if (transactionsDebugEl) {
-            transactionsDebugEl.textContent = 'DEBUG: отримано ' + lastTransactions.length + ' транзакцій';
+            try {
+              var cats = Object.keys(categorySummary.byCategory || {});
+              if (!cats.length) {
+                transactionsDebugEl.textContent = 'DEBUG: ' + lastTransactions.length + ' транзакцій, категорії не задані';
+              } else {
+                var parts = cats.map(function (code) {
+                  var c = categorySummary.byCategory[code];
+                  return c.label + ': +' + c.income.toFixed(2) + ' / -' + c.expense.toFixed(2);
+                });
+                transactionsDebugEl.textContent =
+                  'DEBUG: ' + lastTransactions.length + ' транзакцій; категорії → ' + parts.join(' | ');
+              }
+            } catch (e) {
+              console.error('Failed to render transactions category debug', e);
+              transactionsDebugEl.textContent = 'DEBUG: ' + lastTransactions.length + ' транзакцій';
+            }
           }
 
           if (!transactionsTbody) return;
@@ -1384,14 +1855,21 @@ function renderContacts(contacts) {
 
           var rows = lastTransactions
             .map(function (t) {
-              var type = t.type || '';
+              var meta = getTransactionCategoryMeta(t.category);
+              var typeFromCategory = meta && meta.type === 'expense'
+                ? 'expense'
+                : meta && meta.type === 'income'
+                ? 'income'
+                : null;
+              var type = typeFromCategory || (t.type || '');
               var rowClass = '';
               if (type === 'income') rowClass = 'transaction-row-income';
               else if (type === 'expense') rowClass = 'transaction-row-expense';
 
               var amountStr = formatCurrency(t.amount, t.currency);
               var typeLabel = type === 'income' ? 'Доходи' : (type === 'expense' ? 'Витрати' : type || '—');
-              var category = t.category || '—';
+              var category = t.category || '';
+              var categoryBadgeHtml = category ? renderTransactionCategoryBadge(category) : '<span class="muted">—</span>';
               var description = t.description || '';
               var dateValue = t.happenedAt || t.createdAt;
 
@@ -1411,11 +1889,11 @@ function renderContacts(contacts) {
               }
 
               return (
-                '<tr class="' + rowClass + '">' +
+                '<tr class="transaction-row ' + rowClass + '" data-transaction-id="' + (t.id != null ? t.id : '') + '">' +
                 '<td>' + formatDate(dateValue) + '</td>' +
                 '<td>' + typeLabel + '</td>' +
                 '<td>' + amountStr + '</td>' +
-                '<td>' + category + '</td>' +
+                '<td>' + categoryBadgeHtml + '</td>' +
                 '<td>' + (description || '<span class="muted">—</span>') + '</td>' +
                 '<td>' + contactStr + '</td>' +
                 '<td>' + caseStr + '</td>' +
@@ -1427,7 +1905,213 @@ function renderContacts(contacts) {
           transactionsTbody.innerHTML = rows;
         }
 
-        function renderTransactionsSummary(summary) {
+        
+        function renderTransactionsCategorySummary(categorySummary) {
+          if (!transactionsCategorySummaryEl) return;
+
+          try {
+            var container = transactionsCategorySummaryEl;
+            var summary = categorySummary || { byCategory: {}, totals: { income: 0, expense: 0 } };
+            var byCategory = summary.byCategory || {};
+            var keys = Object.keys(byCategory);
+
+            if (!keys.length) {
+              container.innerHTML =
+                '<div class="config-panel">' +
+                '<div class="config-panel-title">Суми по категоріях за період</div>' +
+                '<div class="config-panel-subtitle">Немає даних для обраного періоду.</div>' +
+                '</div>';
+              return;
+            }
+
+            var totalIncome = Number(summary.totals && summary.totals.income || 0);
+            var totalExpense = Number(summary.totals && summary.totals.expense || 0);
+            var net = totalIncome - totalExpense;
+
+            var rowsHtml = keys
+              .map(function (code) {
+                var c = byCategory[code];
+                var incomeStr = formatCurrency(c.income, 'UAH');
+                var expenseStr = formatCurrency(c.expense, 'UAH');
+                var netVal = (Number(c.income || 0) - Number(c.expense || 0));
+                var netStr = formatCurrency(netVal, 'UAH');
+                var badgeHtml = renderTransactionCategoryBadge(code);
+
+                return (
+                  '<tr>' +
+                  '<td>' + badgeHtml + '</td>' +
+                  '<td style="text-align:right;">' + incomeStr + '</td>' +
+                  '<td style="text-align:right;">' + expenseStr + '</td>' +
+                  '<td style="text-align:right;">' + netStr + '</td>' +
+                  '</tr>'
+                );
+              })
+              .join('');
+
+            var totalIncomeStr = formatCurrency(totalIncome, 'UAH');
+            var totalExpenseStr = formatCurrency(totalExpense, 'UAH');
+            var netStrTotal = formatCurrency(net, 'UAH');
+
+            var html = '';
+            html += '<div class="config-panel">';
+            html += '<div class="config-panel-title">Суми по категоріях за період</div>';
+            html += '<div class="config-panel-subtitle">Враховуються всі транзакції, що відповідають поточним фільтрам.</div>';
+            html += '<table class="config-table"><thead><tr>';
+            html += '<th>Категорія</th>';
+            html += '<th style="text-align:right;">Доходи</th>';
+            html += '<th style="text-align:right;">Витрати</th>';
+            html += '<th style="text-align:right;">Нетто</th>';
+            html += '</tr></thead><tbody>';
+            html += rowsHtml;
+            html += '</tbody></table>';
+            html += '<div class="config-panel-footer" style="margin-top:8px;">';
+            html += '<div>Всього доходів: <strong>' + totalIncomeStr + '</strong></div>';
+            html += '<div>Всього витрат: <strong>' + totalExpenseStr + '</strong></div>';
+            html += '<div>Баланс: <strong>' + netStrTotal + '</strong></div>';
+            html += '</div>';
+            html += '</div>';
+
+            container.innerHTML = html;
+          } catch (e) {
+            console.error('Failed to render transactions category summary', e);
+          }
+        }
+
+
+        function openTransactionModal(tx) {
+          if (!transactionModalBackdrop) return;
+          currentTransactionForModal = tx;
+
+          try {
+            if (transactionModalTitle) {
+              transactionModalTitle.textContent = 'Транзакція #' + (tx.id != null ? tx.id : '');
+            }
+            if (transactionModalDate) {
+              var dateValue = tx.happenedAt || tx.createdAt;
+              transactionModalDate.textContent = dateValue ? formatDate(dateValue) : '';
+            }
+            if (transactionModalType) {
+              var type = tx.type || '';
+              var typeLabel = type === 'income' ? 'Доходи' : (type === 'expense' ? 'Витрати' : type || '—');
+              transactionModalType.textContent = typeLabel;
+            }
+            if (transactionModalAmount) {
+              transactionModalAmount.textContent = formatCurrency(tx.amount, tx.currency);
+            }
+            if (transactionModalDescription) {
+              transactionModalDescription.value = tx.description || '';
+            }
+
+            if (transactionModalCategorySelect) {
+              while (transactionModalCategorySelect.firstChild) {
+                transactionModalCategorySelect.removeChild(transactionModalCategorySelect.firstChild);
+              }
+
+              var currentCode = tx.category || '';
+              var categories = Array.isArray(transactionCategories) ? transactionCategories.slice() : [];
+              if (categories.length) {
+                categories.sort(function (a, b) {
+                  var ao = (typeof a.order === 'number') ? a.order : 0;
+                  var bo = (typeof b.order === 'number') ? b.order : 0;
+                  return ao - bo;
+                });
+              }
+
+              var placeholderOption = document.createElement('option');
+              placeholderOption.value = '';
+              placeholderOption.textContent = 'Оберіть категорію';
+              transactionModalCategorySelect.appendChild(placeholderOption);
+
+              if (categories.length) {
+                categories.forEach(function (cat) {
+                  if (!cat || !cat.code) return;
+                  var opt = document.createElement('option');
+                  opt.value = cat.code;
+                  opt.textContent = cat.label || cat.code;
+                  if (cat.code === currentCode) {
+                    opt.selected = true;
+                  }
+                  transactionModalCategorySelect.appendChild(opt);
+                });
+              }
+
+              if (!currentCode && categories.length) {
+                transactionModalCategorySelect.value = '';
+              }
+            }
+          } catch (e) {
+            console.error('Failed to open transaction modal', e);
+          }
+
+          transactionModalBackdrop.style.display = 'flex';
+        }
+
+        function closeTransactionModal() {
+          if (transactionModalBackdrop) {
+            transactionModalBackdrop.style.display = 'none';
+          }
+          currentTransactionForModal = null;
+        }
+
+        function saveCurrentTransactionChanges() {
+          if (!currentTransactionForModal) return;
+
+          var payload = {};
+          var tx = currentTransactionForModal;
+
+          if (transactionModalCategorySelect && transactionModalCategorySelect.value) {
+            if (tx.category !== transactionModalCategorySelect.value) {
+              payload.category = transactionModalCategorySelect.value;
+            }
+          }
+
+          if (transactionModalDescription) {
+            var newDesc = transactionModalDescription.value || '';
+            if ((tx.description || '') !== newDesc) {
+              payload.description = newDesc;
+            }
+          }
+
+          var hasAny =
+            payload.category !== undefined ||
+            payload.description !== undefined;
+
+          if (!hasAny) {
+            closeTransactionModal();
+            return;
+          }
+
+          authedFetch('/transactions/' + tx.id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+            .then(function (res) {
+              if (!res.ok) {
+                return res.json().catch(function () { return { error: 'Failed to update transaction' }; })
+                  .then(function (data) { throw new Error(data.error || 'Failed to update transaction'); });
+              }
+              return res.json();
+            })
+            .then(function (updated) {
+              if (Array.isArray(lastTransactions)) {
+                for (var i = 0; i < lastTransactions.length; i++) {
+                  if (Number(lastTransactions[i].id) === Number(updated.id)) {
+                    lastTransactions[i] = updated;
+                    break;
+                  }
+                }
+              }
+              renderTransactions(lastTransactions);
+              closeTransactionModal();
+            })
+            .catch(function (err) {
+              console.error('Failed to save transaction changes', err);
+              alert('Не вдалося зберегти зміни транзакції: ' + (err && err.message ? err.message : String(err)));
+            });
+        }
+
+function renderTransactionsSummary(summary) {
           if (!summary) {
             if (summaryIncomeEl) summaryIncomeEl.textContent = '—';
             if (summaryExpenseEl) summaryExpenseEl.textContent = '—';
@@ -1485,7 +2169,6 @@ function loadData() {
               renderCases(results[0]);
               renderContacts(results[1]);
               renderTransactions(results[2]);
-              renderTransactionsSummary(results[3]);
             })
             .catch(function (err) {
               console.error('Failed to load data', err);
@@ -1536,7 +2219,6 @@ function loadData() {
           ])
             .then(function (results) {
               renderTransactions(results[0]);
-              renderTransactionsSummary(results[1]);
               setStatus('Дані оновлено', false);
             })
             .catch(function (err) {
@@ -1580,6 +2262,45 @@ tabs.forEach(function (btn) {
           });
         });
 
+
+        if (transactionsTbody) {
+          transactionsTbody.addEventListener('click', function (event) {
+            var target = event.target;
+            if (!target) return;
+            var row = target.closest('tr');
+            if (!row) return;
+            var idAttr = row.getAttribute('data-transaction-id');
+            if (!idAttr) return;
+            var idNum = Number(idAttr);
+            if (!Array.isArray(lastTransactions)) return;
+            var tx = lastTransactions.find(function (t) { return Number(t.id) === idNum; });
+            if (!tx) return;
+            openTransactionModal(tx);
+          });
+        }
+
+        if (transactionModalSaveBtn) {
+          transactionModalSaveBtn.addEventListener('click', function () {
+            if (!currentTransactionForModal) {
+              closeTransactionModal();
+              return;
+            }
+            saveCurrentTransactionChanges();
+          });
+        }
+
+        if (transactionModalCancelBtn) {
+          transactionModalCancelBtn.addEventListener('click', function () {
+            closeTransactionModal();
+          });
+        }
+
+        if (transactionModalCloseBtn) {
+          transactionModalCloseBtn.addEventListener('click', function () {
+            closeTransactionModal();
+          });
+        }
+
         loginForm.addEventListener('submit', function (e) {
           e.preventDefault();
           setStatus('', false);
@@ -1609,6 +2330,9 @@ tabs.forEach(function (btn) {
               dataCard.style.display = '';
               logoutBtn.style.display = 'inline-flex';
               loadProjectConfig().finally(function () {
+                if (typeof updateTransactionCategoryFilterOptions === 'function') {
+                  updateTransactionCategoryFilterOptions();
+                }
                 loadData();
               });
             })
@@ -1897,6 +2621,33 @@ tabs.forEach(function (btn) {
         }
 
 
+
+        function openTransactionCategoriesConfigModal() {
+          if (transactionCategoriesConfigModalBackdrop) {
+            transactionCategoriesConfigModalBackdrop.style.display = 'flex';
+          }
+          if (typeof renderTransactionCategoriesConfigEditor === 'function') {
+            renderTransactionCategoriesConfigEditor();
+          }
+        }
+
+        function closeTransactionCategoriesConfigModal() {
+          if (transactionCategoriesConfigModalBackdrop) {
+            transactionCategoriesConfigModalBackdrop.style.display = 'none';
+          }
+        }
+
+        if (openTransactionCategoriesConfigBtn) {
+          openTransactionCategoriesConfigBtn.addEventListener('click', function () {
+            openTransactionCategoriesConfigModal();
+          });
+        }
+        if (transactionCategoriesConfigClose) {
+          transactionCategoriesConfigClose.addEventListener('click', function () {
+            closeTransactionCategoriesConfigModal();
+          });
+        }
+
         function openNotificationsConfigModal() {
           if (!notificationsConfigModalBackdrop) return;
           notificationsConfigModalBackdrop.style.display = 'flex';
@@ -2096,6 +2847,9 @@ caseModalClose.addEventListener('click', function () {
               logoutBtn.style.display = 'inline-flex';
               setStatus('Сесія відновлена', false);
               loadProjectConfig().finally(function () {
+                if (typeof updateTransactionCategoryFilterOptions === 'function') {
+                  updateTransactionCategoryFilterOptions();
+                }
                 loadData();
               });
             })
