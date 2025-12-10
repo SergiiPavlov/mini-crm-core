@@ -85,6 +85,65 @@ const publicFeedbackSchema = z
 
 function getNotificationConfig(project: any) {
   const config = (project && (project as any).config) || {};
+function getTransactionCategoriesConfig(project: any) {
+  const config = (project && (project as any).config) || {};
+  const raw = (config as any).transactionCategories;
+
+  const defaultCategories = [
+    { code: 'donation', label: 'Пожертвування', color: '#3b82f6', type: 'income', order: 1 },
+    { code: 'service', label: 'Послуга', color: '#22c55e', type: 'income', order: 2 },
+    { code: 'refund', label: 'Повернення', color: '#ef4444', type: 'expense', order: 3 },
+  ];
+
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return defaultCategories;
+  }
+
+  const normalized = raw.map((cat: any, index: number) => {
+    const code =
+      typeof cat.code === 'string' && cat.code.trim() ? cat.code.trim() : `category_${index + 1}`;
+    const label =
+      typeof cat.label === 'string' && cat.label.trim() ? cat.label.trim() : code;
+    const color =
+      typeof cat.color === 'string' && cat.color.trim()
+        ? cat.color.trim()
+        : defaultCategories[0].color;
+    const type = cat.type === 'expense' ? 'expense' : 'income';
+    const order = typeof cat.order === 'number' ? cat.order : index + 1;
+
+    return { code, label, color, type, order };
+  });
+
+  return normalized.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+
+
+
+function pickProjectTransactionCategory(
+  project: any,
+  preferredCodes: string[] = [],
+  preferredType: 'income' | 'expense' | 'any' = 'any'
+) {
+  const txCategories = getTransactionCategoriesConfig(project);
+  if (!Array.isArray(txCategories) || txCategories.length === 0) {
+    return null;
+  }
+
+  for (const code of preferredCodes) {
+    if (!code) continue;
+    const found = txCategories.find((cat) => cat.code === code);
+    if (found) return found;
+  }
+
+  if (preferredType === 'income' || preferredType === 'expense') {
+    const foundByType = txCategories.find((cat) => cat.type === preferredType);
+    if (foundByType) return foundByType;
+  }
+
+  return txCategories[0];
+}
+
   const notifications = (config as any).notifications || {};
   const emails = Array.isArray(notifications.emails) ? notifications.emails : [];
   return {
@@ -241,6 +300,10 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         console.error('Error creating case for donation', caseError);
       }
 
+      const donationCategory =
+        pickProjectTransactionCategory(project, ['donation'], 'income') ||
+        pickProjectTransactionCategory(project, [], 'income');
+
       const transaction = await prisma.transaction.create({
         data: {
           projectId: project.id,
@@ -249,7 +312,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
           type: 'income',
           amount,
           currency: 'UAH',
-          category: 'donation',
+          category: donationCategory ? donationCategory.code : 'donation',
           description: message || null,
         },
       });

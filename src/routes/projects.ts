@@ -20,21 +20,46 @@ const caseStatusConfigItemSchema = z.object({
   rowBg: z.string().min(1, 'rowBg is required').optional().nullable(),
 });
 
-const updateProjectConfigSchema = z.object({
-  caseStatuses: z.array(caseStatusConfigItemSchema).min(1, 'at least one status is required'),
-  notifications: z
-    .object({
-      emails: z.array(z.string().email()).optional(),
-      notifyOnLead: z.boolean().optional(),
-      notifyOnDonation: z.boolean().optional(),
-      notifyOnBooking: z.boolean().optional(),
-      notifyOnFeedback: z.boolean().optional(),
-    })
-    .partial()
-    .optional(),
+const transactionCategoryConfigItemSchema = z.object({
+  code: z.string().min(1, 'code is required'),
+  label: z.string().min(1, 'label is required'),
+  color: z.string().min(1, 'color is required'),
+  type: z.enum(['income', 'expense']),
+  order: z.number().int().nonnegative().optional(),
 });
 
-const DEFAULT_PROJECT_CONFIG = {
+const updateProjectConfigSchema = z
+  .object({
+    caseStatuses: z
+      .array(caseStatusConfigItemSchema)
+      .min(1, 'at least one status is required')
+      .optional(),
+    notifications: z
+      .object({
+        emails: z.array(z.string().email()).optional(),
+        notifyOnLead: z.boolean().optional(),
+        notifyOnDonation: z.boolean().optional(),
+        notifyOnBooking: z.boolean().optional(),
+        notifyOnFeedback: z.boolean().optional(),
+      })
+      .partial()
+      .optional(),
+    transactionCategories: z
+      .array(transactionCategoryConfigItemSchema)
+      .min(1, 'at least one transaction category is required')
+      .optional(),
+  })
+  .refine(
+    (data) =>
+      data.caseStatuses ||
+      data.notifications ||
+      data.transactionCategories,
+    {
+      message: 'At least one config section must be provided',
+    }
+  );
+
+export const DEFAULT_PROJECT_CONFIG = {
   caseStatuses: [
     { code: 'new', label: 'Новий', rowBg: '#fef2f2' },
     { code: 'in_progress', label: 'В прогресі', rowBg: '#fffbeb' },
@@ -47,9 +72,150 @@ const DEFAULT_PROJECT_CONFIG = {
     notifyOnBooking: true,
     notifyOnFeedback: true,
   },
+  transactionCategories: [
+    { code: 'donation', label: 'Пожертвування', color: '#3b82f6', type: 'income', order: 1 },
+    { code: 'service', label: 'Послуга', color: '#22c55e', type: 'income', order: 2 },
+    { code: 'refund', label: 'Повернення', color: '#ef4444', type: 'expense', order: 3 },
+  ],
 };
 
-// GET /projects— list all projects (simple admin/debug endpoint)
+type ProjectConfigUpdateInput = z.infer<typeof updateProjectConfigSchema>;
+
+function buildNextProjectConfig(existingConfig: any, parsed: ProjectConfigUpdateInput): any {
+  let base: any = {};
+  if (existingConfig && typeof existingConfig === 'object') {
+    base = { ...existingConfig };
+  }
+
+  if (parsed.caseStatuses) {
+    base.caseStatuses = parsed.caseStatuses.map((item) => ({
+      code: item.code,
+      label: item.label,
+      rowBg:
+        item.rowBg ??
+        existingConfig?.caseStatuses?.find((s: any) => s.code === item.code)?.rowBg ??
+        undefined,
+    }));
+  }
+
+  if (parsed.notifications) {
+    const existingNotifications = (existingConfig && (existingConfig as any).notifications) || {};
+    base.notifications = {
+      emails: parsed.notifications.emails ?? existingNotifications.emails ?? [],
+      notifyOnLead:
+        typeof parsed.notifications.notifyOnLead === 'boolean'
+          ? parsed.notifications.notifyOnLead
+          : existingNotifications.notifyOnLead ?? DEFAULT_PROJECT_CONFIG.notifications.notifyOnLead,
+      notifyOnDonation:
+        typeof parsed.notifications.notifyOnDonation === 'boolean'
+          ? parsed.notifications.notifyOnDonation
+          : existingNotifications.notifyOnDonation ??
+            DEFAULT_PROJECT_CONFIG.notifications.notifyOnDonation,
+      notifyOnBooking:
+        typeof parsed.notifications.notifyOnBooking === 'boolean'
+          ? parsed.notifications.notifyOnBooking
+          : existingNotifications.notifyOnBooking ??
+            DEFAULT_PROJECT_CONFIG.notifications.notifyOnBooking,
+      notifyOnFeedback:
+        typeof parsed.notifications.notifyOnFeedback === 'boolean'
+          ? parsed.notifications.notifyOnFeedback
+          : existingNotifications.notifyOnFeedback ??
+            DEFAULT_PROJECT_CONFIG.notifications.notifyOnFeedback,
+    };
+  }
+
+  if (parsed.transactionCategories) {
+    const existingCategories = (
+      Array.isArray(existingConfig?.transactionCategories)
+        ? existingConfig.transactionCategories
+        : []
+    ) as any[];
+
+    base.transactionCategories = parsed.transactionCategories.map((item, index) => {
+      const prev = existingCategories.find((c: any) => c.code === item.code) || {};
+      return {
+        code: item.code,
+        label: item.label,
+        color: item.color ?? prev.color ?? '#6b7280',
+        type: item.type ?? prev.type ?? 'income',
+        order:
+          typeof item.order === 'number'
+            ? item.order
+            : typeof prev.order === 'number'
+            ? prev.order
+            : index + 1,
+      };
+    });
+  }
+
+  return base;
+}
+
+function normalizeProjectConfig(rawConfig: any) {
+  let config: any = rawConfig && typeof rawConfig === 'object' ? { ...rawConfig } : {};
+
+  if (!Array.isArray(config.caseStatuses) || config.caseStatuses.length === 0) {
+    config.caseStatuses = DEFAULT_PROJECT_CONFIG.caseStatuses;
+  }
+
+  if (!config.notifications || typeof config.notifications !== 'object') {
+    config.notifications = { ...DEFAULT_PROJECT_CONFIG.notifications };
+  } else {
+    const existing = config.notifications || {};
+    config.notifications = {
+      emails: Array.isArray(existing.emails) ? existing.emails : [],
+      notifyOnLead:
+        typeof existing.notifyOnLead === 'boolean'
+          ? existing.notifyOnLead
+          : DEFAULT_PROJECT_CONFIG.notifications.notifyOnLead,
+      notifyOnDonation:
+        typeof existing.notifyOnDonation === 'boolean'
+          ? existing.notifyOnDonation
+          : DEFAULT_PROJECT_CONFIG.notifications.notifyOnDonation,
+      notifyOnBooking:
+        typeof existing.notifyOnBooking === 'boolean'
+          ? existing.notifyOnBooking
+          : DEFAULT_PROJECT_CONFIG.notifications.notifyOnBooking,
+      notifyOnFeedback:
+        typeof existing.notifyOnFeedback === 'boolean'
+          ? existing.notifyOnFeedback
+          : DEFAULT_PROJECT_CONFIG.notifications.notifyOnFeedback,
+    };
+  }
+
+  if (
+    !Array.isArray(config.transactionCategories) ||
+    config.transactionCategories.length === 0
+  ) {
+    config.transactionCategories = DEFAULT_PROJECT_CONFIG.transactionCategories;
+  } else {
+    config.transactionCategories = config.transactionCategories
+      .map((cat: any, index: number) => {
+        const code =
+          typeof cat.code === 'string' && cat.code.trim()
+            ? cat.code.trim()
+            : `category_${index + 1}`;
+        const label =
+          typeof cat.label === 'string' && cat.label.trim()
+            ? cat.label.trim()
+            : code;
+        const color =
+          typeof cat.color === 'string' && cat.color.trim()
+            ? cat.color.trim()
+            : DEFAULT_PROJECT_CONFIG.transactionCategories[0].color;
+        const type = cat.type === 'expense' ? 'expense' : 'income';
+        const order =
+          typeof cat.order === 'number' ? cat.order : index + 1;
+
+        return { code, label, color, type, order };
+      })
+      .sort((a: any, b: any) => (a.order ?? 0) - (b.order ?? 0));
+  }
+
+  return config;
+}
+
+// GET /projects — list all projects (simple admin/debug endpoint)
 router.get('/', async (_req, res) => {
   try {
     const projects = await prisma.project.findMany({
@@ -86,40 +252,7 @@ router.get('/current', requireAuth, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Project not found for current user' });
     }
 
-    let config: any = project.config ?? {};
-    if (!config || typeof config !== 'object') {
-      config = {};
-    }
-
-    if (!Array.isArray(config.caseStatuses) || config.caseStatuses.length === 0) {
-      config.caseStatuses = DEFAULT_PROJECT_CONFIG.caseStatuses;
-    }
-
-    if (!config.notifications || typeof config.notifications !== 'object') {
-      config.notifications = { ...DEFAULT_PROJECT_CONFIG.notifications };
-    } else {
-      config.notifications = {
-        emails: Array.isArray(config.notifications.emails)
-          ? config.notifications.emails
-          : [],
-        notifyOnLead:
-          typeof config.notifications.notifyOnLead === 'boolean'
-            ? config.notifications.notifyOnLead
-            : DEFAULT_PROJECT_CONFIG.notifications.notifyOnLead,
-        notifyOnDonation:
-          typeof config.notifications.notifyOnDonation === 'boolean'
-            ? config.notifications.notifyOnDonation
-            : DEFAULT_PROJECT_CONFIG.notifications.notifyOnDonation,
-        notifyOnBooking:
-          typeof config.notifications.notifyOnBooking === 'boolean'
-            ? config.notifications.notifyOnBooking
-            : DEFAULT_PROJECT_CONFIG.notifications.notifyOnBooking,
-        notifyOnFeedback:
-          typeof config.notifications.notifyOnFeedback === 'boolean'
-            ? config.notifications.notifyOnFeedback
-            : DEFAULT_PROJECT_CONFIG.notifications.notifyOnFeedback,
-      };
-    }
+    const config = normalizeProjectConfig(project.config ?? {});
 
     return res.json({
       id: project.id,
@@ -133,7 +266,32 @@ router.get('/current', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
-// PATCH /projects/current/config — update project config (caseStatuses)
+// GET /projects/:slug/config — read config by slug
+router.get('/:slug/config', async (req, res) => {
+  try {
+    const { slug } = req.params;
+
+    const project = await prisma.project.findUnique({
+      where: { slug },
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const config = normalizeProjectConfig(project.config ?? {});
+
+    return res.json({
+      slug: project.slug,
+      config,
+    });
+  } catch (error) {
+    console.error('Failed to load project config by slug', error);
+    return res.status(500).json({ error: 'Failed to load project config' });
+  }
+});
+
+// PATCH /projects/current/config — update project config (caseStatuses, notifications, transactionCategories)
 router.patch('/current/config', requireAuth, async (req: AuthRequest, res) => {
   try {
     const user = req.user;
@@ -151,42 +309,10 @@ router.patch('/current/config', requireAuth, async (req: AuthRequest, res) => {
       return res.status(404).json({ error: 'Project not found for current user' });
     }
 
-    let existingConfig: any = project.config ?? {};
-    if (!existingConfig || typeof existingConfig !== 'object') {
-      existingConfig = {};
-    }
+    const existingConfig: any =
+      project.config && typeof project.config === 'object' ? project.config : {};
 
-    const nextConfig: any = {
-      ...existingConfig,
-      caseStatuses: parsed.caseStatuses.map((item) => ({
-        code: item.code,
-        label: item.label,
-        rowBg: item.rowBg ?? existingConfig?.caseStatuses?.find((s: any) => s.code === item.code)?.rowBg ?? undefined,
-      })),
-    };
-
-    if (parsed.notifications) {
-      const existingNotifications = (existingConfig && (existingConfig as any).notifications) || {};
-      nextConfig.notifications = {
-        emails: parsed.notifications.emails ?? existingNotifications.emails ?? [],
-        notifyOnLead:
-          typeof parsed.notifications.notifyOnLead === 'boolean'
-            ? parsed.notifications.notifyOnLead
-            : existingNotifications.notifyOnLead ?? DEFAULT_PROJECT_CONFIG.notifications.notifyOnLead,
-        notifyOnDonation:
-          typeof parsed.notifications.notifyOnDonation === 'boolean'
-            ? parsed.notifications.notifyOnDonation
-            : existingNotifications.notifyOnDonation ?? DEFAULT_PROJECT_CONFIG.notifications.notifyOnDonation,
-        notifyOnBooking:
-          typeof parsed.notifications.notifyOnBooking === 'boolean'
-            ? parsed.notifications.notifyOnBooking
-            : existingNotifications.notifyOnBooking ?? DEFAULT_PROJECT_CONFIG.notifications.notifyOnBooking,
-        notifyOnFeedback:
-          typeof parsed.notifications.notifyOnFeedback === 'boolean'
-            ? parsed.notifications.notifyOnFeedback
-            : existingNotifications.notifyOnFeedback ?? DEFAULT_PROJECT_CONFIG.notifications.notifyOnFeedback,
-      };
-    }
+    const nextConfig = buildNextProjectConfig(existingConfig, parsed);
 
     const updated = await prisma.project.update({
       where: { id: project.id },
@@ -201,6 +327,59 @@ router.patch('/current/config', requireAuth, async (req: AuthRequest, res) => {
     });
   } catch (error) {
     console.error('Failed to update project config', error);
+
+    if (error instanceof ZodError) {
+      return res.status(400).json({
+        error: 'Invalid config payload',
+        details: error.errors,
+      });
+    }
+
+    return res.status(500).json({ error: 'Failed to update project config' });
+  }
+});
+
+// PATCH /projects/:slug/config — update config by slug for current user's project
+router.patch('/:slug/config', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const user = req.user;
+    if (!user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    const { slug } = req.params;
+    const parsed = updateProjectConfigSchema.parse(req.body);
+
+    const project = await prisma.project.findUnique({
+      where: { slug },
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    if (project.id !== user.projectId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const existingConfig: any =
+      project.config && typeof project.config === 'object' ? project.config : {};
+
+    const nextConfig = buildNextProjectConfig(existingConfig, parsed);
+
+    const updated = await prisma.project.update({
+      where: { id: project.id },
+      data: { config: nextConfig },
+    });
+
+    return res.json({
+      id: updated.id,
+      name: updated.name,
+      slug: updated.slug,
+      config: nextConfig,
+    });
+  } catch (error) {
+    console.error('Failed to update project config by slug', error);
 
     if (error instanceof ZodError) {
       return res.status(400).json({
