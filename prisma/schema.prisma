@@ -49,6 +49,7 @@ model Project {
   contacts      Contact[]
   cases         Case[]
   transactions Transaction[]
+  publicForms  PublicForm[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -111,5 +112,24 @@ model Task {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model PublicForm {
+  id        Int      @id @default(autoincrement())
+  projectId Int
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  formKey     String   // e.g. "lead", "donation", "booking", "feedback"
+  title       String
+  type        String   // semantic type of form (lead/donation/booking/feedback/custom)
+  description String?
+  config      Json?
+  isActive    Boolean  @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([projectId, formKey])
+  @@index([projectId, type])
 }
 
