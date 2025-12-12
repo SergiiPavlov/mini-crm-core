@@ -85,6 +85,21 @@ const publicFeedbackSchema = z
 
 function getNotificationConfig(project: any) {
   const config = (project && (project as any).config) || {};
+  const notifications = (config as any).notifications || {};
+  const emails = Array.isArray(notifications.emails) ? notifications.emails : [];
+  return {
+    emails,
+    notifyOnLead:
+      typeof notifications.notifyOnLead === 'boolean' ? notifications.notifyOnLead : true,
+    notifyOnDonation:
+      typeof notifications.notifyOnDonation === 'boolean' ? notifications.notifyOnDonation : true,
+    notifyOnBooking:
+      typeof notifications.notifyOnBooking === 'boolean' ? notifications.notifyOnBooking : true,
+    notifyOnFeedback:
+      typeof notifications.notifyOnFeedback === 'boolean' ? notifications.notifyOnFeedback : true,
+  };
+}
+
 function getTransactionCategoriesConfig(project: any) {
   const config = (project && (project as any).config) || {};
   const raw = (config as any).transactionCategories;
@@ -100,14 +115,11 @@ function getTransactionCategoriesConfig(project: any) {
   }
 
   const normalized = raw.map((cat: any, index: number) => {
-    const code =
-      typeof cat.code === 'string' && cat.code.trim() ? cat.code.trim() : `category_${index + 1}`;
-    const label =
-      typeof cat.label === 'string' && cat.label.trim() ? cat.label.trim() : code;
-    const color =
-      typeof cat.color === 'string' && cat.color.trim()
-        ? cat.color.trim()
-        : defaultCategories[0].color;
+    const code = typeof cat.code === 'string' && cat.code.trim() ? cat.code.trim() : defaultCategories[0].code;
+    const label = typeof cat.label === 'string' && cat.label.trim() ? cat.label.trim() : code;
+    const color = typeof cat.color === 'string' && cat.color.trim()
+      ? cat.color.trim()
+      : defaultCategories[0].color;
     const type = cat.type === 'expense' ? 'expense' : 'income';
     const order = typeof cat.order === 'number' ? cat.order : index + 1;
 
@@ -116,9 +128,6 @@ function getTransactionCategoriesConfig(project: any) {
 
   return normalized.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 }
-
-
-
 
 function pickProjectTransactionCategory(
   project: any,
@@ -144,20 +153,6 @@ function pickProjectTransactionCategory(
   return txCategories[0];
 }
 
-  const notifications = (config as any).notifications || {};
-  const emails = Array.isArray(notifications.emails) ? notifications.emails : [];
-  return {
-    emails,
-    notifyOnLead:
-      typeof notifications.notifyOnLead === 'boolean' ? notifications.notifyOnLead : true,
-    notifyOnDonation:
-      typeof notifications.notifyOnDonation === 'boolean' ? notifications.notifyOnDonation : true,
-    notifyOnBooking:
-      typeof notifications.notifyOnBooking === 'boolean' ? notifications.notifyOnBooking : true,
-    notifyOnFeedback:
-      typeof notifications.notifyOnFeedback === 'boolean' ? notifications.notifyOnFeedback : true,
-  };
-}
 // Unified handler for public forms
 router.post('/forms/:projectSlug/:formKey', async (req, res) => {
   try {
@@ -181,6 +176,14 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
       }
+
+      const publicForm = await prisma.publicForm.findFirst({
+        where: {
+          projectId: project.id,
+          formKey,
+          isActive: true,
+        },
+      });
 
       const contact = await prisma.contact.create({
         data: {
@@ -256,6 +259,14 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         return res.status(404).json({ error: 'Project not found' });
       }
 
+      const publicForm = await prisma.publicForm.findFirst({
+        where: {
+          projectId: project.id,
+          formKey,
+          isActive: true,
+        },
+      });
+
       let contact: any = null;
 
       if (email) {
@@ -300,9 +311,12 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         console.error('Error creating case for donation', caseError);
       }
 
+      const txCategories = getTransactionCategoriesConfig(project);
       const donationCategory =
-        pickProjectTransactionCategory(project, ['donation'], 'income') ||
-        pickProjectTransactionCategory(project, [], 'income');
+        (Array.isArray(txCategories)
+          ? txCategories.find((cat) => cat.code === 'donation' && cat.type === 'income') ||
+            txCategories.find((cat) => cat.type === 'income')
+          : null);
 
       const transaction = await prisma.transaction.create({
         data: {
@@ -366,6 +380,14 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
       }
+
+      const publicForm = await prisma.publicForm.findFirst({
+        where: {
+          projectId: project.id,
+          formKey,
+          isActive: true,
+        },
+      });
 
       let contact: any = null;
 
@@ -462,6 +484,14 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
       if (!project) {
         return res.status(404).json({ error: 'Project not found' });
       }
+
+      const publicForm = await prisma.publicForm.findFirst({
+        where: {
+          projectId: project.id,
+          formKey,
+          isActive: true,
+        },
+      });
 
       let contact: any = null;
 
