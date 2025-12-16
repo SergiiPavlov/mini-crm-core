@@ -11,6 +11,7 @@ import tasksRouter from './routes/tasks';
 import casesRouter from './routes/cases';
 import transactionsRouter from './routes/transactions';
 import publicRouter from './routes/public';
+import publicFormsRouter from './routes/publicForms';
 
 const app = express();
 
@@ -56,6 +57,7 @@ app.use('/', tasksRouter);
 app.use('/cases', casesRouter);
 app.use('/transactions', transactionsRouter);
 app.use('/public', publicRouter);
+app.use('/public-forms', publicFormsRouter);
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {

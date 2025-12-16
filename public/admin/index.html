@@ -559,6 +559,9 @@
               <button type="button" id="open-notifications-config" style="margin-left: 8px;">
                 Налаштування сповіщень
               </button>
+              <button type="button" id="open-public-forms-config" style="margin-left: 8px;">
+                Налаштування форм
+              </button>
             </div>
 
             <div class="table-wrap">
@@ -847,7 +850,47 @@
                 </div>
                 <div class="config-actions">
                   <button type="button" id="notifications-config-save">Зберегти сповіщення</button>
-                  <span id="notifications-config-status" class="status"></span>
+                                    <span id="notifications-config-status" class="status"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="public-forms-config-modal-backdrop" style="display:none;">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Налаштування форм</h2>
+        <button type="button" class="btn-secondary" id="public-forms-config-close">Закрити</button>
+      </div>
+      <div class="modal-body">
+        <div class="config-panel">
+          <div class="config-panel-title">Публічні форми</div>
+          <div class="config-panel-subtitle">
+            Керуйте назвами та активністю форм для віджетів (лід, пожертвування, бронювання, відгук).
+          </div>
+          <table class="config-table">
+            <thead>
+              <tr>
+                <th>Ключ форми</th>
+                <th>Заголовок</th>
+                <th>Активна</th>
+              </tr>
+            </thead>
+            <tbody id="public-forms-tbody">
+              <tr>
+                <td colspan="3" class="muted">Завантаження...</td>
+              </tr>
+            </tbody>
+          </table>
+          <div id="public-forms-config-status" class="status" style="margin-top: 8px;"></div>
+          <div class="config-actions" style="margin-top: 12px;">
+            <button type="button" id="public-forms-config-save">Зберегти форми</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
       <script>
       (function () {
         var apiBase = window.location.origin;
@@ -1444,6 +1487,13 @@ var dataCard = document.getElementById('data-card');
         var notificationsConfigClose = document.getElementById('notifications-config-close');
         var notificationsConfigSave = document.getElementById('notifications-config-save');
         var notificationsEmailsInput = document.getElementById('notifications-emails-input');
+        var publicFormsConfigModalBackdrop = document.getElementById('public-forms-config-modal-backdrop');
+        var publicFormsConfigClose = document.getElementById('public-forms-config-close');
+        var publicFormsConfigSave = document.getElementById('public-forms-config-save');
+        var openPublicFormsConfigBtn = document.getElementById('open-public-forms-config');
+        var publicFormsTbody = document.getElementById('public-forms-tbody');
+        var publicFormsConfigStatus = document.getElementById('public-forms-config-status');
+var notificationsEmailsInput = document.getElementById('notifications-emails-input');
         var notifyOnLeadCheckbox = document.getElementById('notify-on-lead');
         var notifyOnDonationCheckbox = document.getElementById('notify-on-donation');
         var notifyOnBookingCheckbox = document.getElementById('notify-on-booking');
@@ -2648,8 +2698,157 @@ tabs.forEach(function (btn) {
           });
         }
 
+
+        function openPublicFormsConfigModal() {
+          if (!publicFormsConfigModalBackdrop) return;
+          if (notificationsConfigModalBackdrop) {
+            notificationsConfigModalBackdrop.style.display = 'none';
+          }
+          console.log('[mini-crm] openPublicFormsConfigModal');
+          publicFormsConfigModalBackdrop.style.display = 'flex';
+          loadPublicFormsConfig();
+        }
+
+        function closePublicFormsConfigModal() {
+          if (!publicFormsConfigModalBackdrop) return;
+          publicFormsConfigModalBackdrop.style.display = 'none';
+        }
+
+        function setPublicFormsConfigStatus(message, isError) {
+          if (!publicFormsConfigStatus) return;
+          publicFormsConfigStatus.textContent = message || '';
+          publicFormsConfigStatus.style.color = isError ? '#b91c1c' : '#64748b';
+        }
+
+        function renderPublicFormsRows(forms) {
+          if (!publicFormsTbody) return;
+          publicFormsTbody.innerHTML = '';
+          if (!forms || !forms.length) {
+            var tr = document.createElement('tr');
+            var td = document.createElement('td');
+            td.colSpan = 3;
+            td.className = 'muted';
+            td.textContent = 'Немає форм для цього проєкту';
+            tr.appendChild(td);
+            publicFormsTbody.appendChild(tr);
+            return;
+          }
+          forms.forEach(function (form) {
+            var tr = document.createElement('tr');
+
+            var keyTd = document.createElement('td');
+            keyTd.textContent = form.formKey || '';
+            tr.appendChild(keyTd);
+
+            var titleTd = document.createElement('td');
+            var input = document.createElement('input');
+            input.type = 'text';
+            input.value = form.title || '';
+            input.setAttribute('data-form-id', String(form.id));
+            input.setAttribute('data-field', 'title');
+            titleTd.appendChild(input);
+            tr.appendChild(titleTd);
+
+            var activeTd = document.createElement('td');
+            var checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = !!form.isActive;
+            checkbox.setAttribute('data-form-id', String(form.id));
+            checkbox.setAttribute('data-field', 'isActive');
+            activeTd.appendChild(checkbox);
+            tr.appendChild(activeTd);
+
+            publicFormsTbody.appendChild(tr);
+          });
+        }
+
+        function loadPublicFormsConfig() {
+          if (!publicFormsTbody) return;
+          publicFormsTbody.innerHTML =
+            '<tr><td colspan="3" class="muted">Завантаження...</td></tr>';
+          setPublicFormsConfigStatus('Завантаження...', false);
+          authedFetch('/public-forms')
+            .then(function (res) {
+              if (!res.ok) throw new Error('Failed to load public forms');
+              return res.json();
+            })
+            .then(function (data) {
+              var forms = Array.isArray(data) ? data : [];
+              renderPublicFormsRows(forms);
+              setPublicFormsConfigStatus('Дані завантажено', false);
+            })
+            .catch(function (err) {
+              console.error('Failed to load public forms', err);
+              setPublicFormsConfigStatus('Не вдалося завантажити форми', true);
+            });
+        }
+
+        function collectPublicFormsChanges() {
+          if (!publicFormsTbody) return [];
+          var inputs = publicFormsTbody.querySelectorAll('input[data-form-id]');
+          var byId = {};
+          inputs.forEach(function (el) {
+            var id = el.getAttribute('data-form-id');
+            if (!id) return;
+            if (!byId[id]) byId[id] = { id: Number(id) };
+            var field = el.getAttribute('data-field');
+            if (field === 'title') {
+              byId[id].title = el.value != null ? String(el.value) : '';
+            } else if (field === 'isActive') {
+              byId[id].isActive = el.checked;
+            }
+          });
+          return Object.keys(byId).map(function (key) {
+            return byId[key];
+          });
+        }
+
+        function savePublicFormsConfig() {
+          var changes = collectPublicFormsChanges();
+          if (!changes.length) {
+            setPublicFormsConfigStatus('Немає змін для збереження', false);
+            return;
+          }
+          setPublicFormsConfigStatus('Збереження...', false);
+          Promise.all(
+            changes.map(function (payload) {
+              return authedFetch('/public-forms/' + payload.id, {
+                method: 'PATCH',
+                body: JSON.stringify({
+                  title: payload.title,
+                  isActive: payload.isActive,
+                }),
+              }).then(function (res) {
+                if (!res.ok) {
+                  return res
+                    .json()
+                    .catch(function () {
+                      return { error: 'Failed to save form' };
+                    })
+                    .then(function (data) {
+                      throw new Error(data.error || 'Failed to save form');
+                    });
+                }
+                return res.json();
+              });
+            })
+          )
+            .then(function () {
+              setPublicFormsConfigStatus('Зміни збережено', false);
+              return loadPublicFormsConfig();
+            })
+            .catch(function (err) {
+              console.error('Failed to save public forms', err);
+              setPublicFormsConfigStatus('Не вдалося зберегти форми', true);
+            });
+        }
+
         function openNotificationsConfigModal() {
           if (!notificationsConfigModalBackdrop) return;
+          if (publicFormsConfigModalBackdrop) {
+            publicFormsConfigModalBackdrop.style.display = 'none';
+          }
+          console.log('[mini-crm] openNotificationsConfigModal');
           notificationsConfigModalBackdrop.style.display = 'flex';
           if (typeof renderNotificationsConfigEditor === 'function') {
             renderNotificationsConfigEditor();
@@ -2763,6 +2962,22 @@ tabs.forEach(function (btn) {
         if (notificationsConfigSave) {
           notificationsConfigSave.addEventListener('click', function () {
             saveNotificationsConfig();
+          });
+        }
+
+        if (openPublicFormsConfigBtn) {
+          openPublicFormsConfigBtn.addEventListener('click', function () {
+            openPublicFormsConfigModal();
+          });
+        }
+        if (publicFormsConfigClose) {
+          publicFormsConfigClose.addEventListener('click', function () {
+            closePublicFormsConfigModal();
+          });
+        }
+        if (publicFormsConfigSave) {
+          publicFormsConfigSave.addEventListener('click', function () {
+            savePublicFormsConfig();
           });
         }
 
