@@ -2713,6 +2713,8 @@ tabs.forEach(function (btn) {
           if (!publicFormsConfigModalBackdrop) return;
           publicFormsConfigModalBackdrop.style.display = 'none';
         }
+        window.openPublicFormsConfigModal = openPublicFormsConfigModal;
+        window.closePublicFormsConfigModal = closePublicFormsConfigModal;
 
         function setPublicFormsConfigStatus(message, isError) {
           if (!publicFormsConfigStatus) return;
@@ -2859,6 +2861,8 @@ tabs.forEach(function (btn) {
           if (!notificationsConfigModalBackdrop) return;
           notificationsConfigModalBackdrop.style.display = 'none';
         }
+        window.openNotificationsConfigModal = openNotificationsConfigModal;
+        window.closeNotificationsConfigModal = closeNotificationsConfigModal;
 
         function setNotificationsConfigStatus(message, isError) {
           if (!notificationsConfigStatus) return;
@@ -2952,7 +2956,6 @@ tabs.forEach(function (btn) {
         if (openNotificationsConfigBtn) {
           openNotificationsConfigBtn.addEventListener('click', function (event) {
             event.preventDefault();
-            event.stopPropagation();
             openNotificationsConfigModal();
           });
           window.openNotificationsConfigModal = openNotificationsConfigModal;
@@ -2971,7 +2974,6 @@ tabs.forEach(function (btn) {
         if (openPublicFormsConfigBtn) {
           openPublicFormsConfigBtn.addEventListener('click', function (event) {
             event.preventDefault();
-            event.stopPropagation();
             openPublicFormsConfigModal();
           });
           window.openPublicFormsConfigModal = openPublicFormsConfigModal;
