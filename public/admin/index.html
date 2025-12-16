@@ -2975,6 +2975,7 @@ tabs.forEach(function (btn) {
             event.preventDefault();
             openNotificationsConfigModal();
           });
+          window.openNotificationsConfigModal = openNotificationsConfigModal;
         }
         if (notificationsConfigClose) {
           notificationsConfigClose.addEventListener('click', function () {
