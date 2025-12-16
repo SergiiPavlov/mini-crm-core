@@ -2713,6 +2713,30 @@ tabs.forEach(function (btn) {
           if (!publicFormsConfigModalBackdrop) return;
           publicFormsConfigModalBackdrop.style.display = 'none';
         }
+        window.closePublicFormsConfigModal = closePublicFormsConfigModal;
+        window.openPublicFormsConfigModal = openPublicFormsConfigModal;
+
+        var publicFormsConfigHandlerAttached = false;
+        function attachPublicFormsConfigHandler() {
+          if (publicFormsConfigHandlerAttached) return;
+          if (!openPublicFormsConfigBtn) return;
+          openPublicFormsConfigBtn.addEventListener('click', function (event) {
+            if (event && typeof event.preventDefault === 'function') {
+              event.preventDefault();
+            }
+            if (event && typeof event.stopPropagation === 'function') {
+              event.stopPropagation();
+            }
+            try {
+              openPublicFormsConfigModal();
+            } catch (err) {
+              console.error('Failed to open public forms config modal', err);
+            }
+          });
+          publicFormsConfigHandlerAttached = true;
+        }
+
+        attachPublicFormsConfigHandler();
 
         function setPublicFormsConfigStatus(message, isError) {
           if (!publicFormsConfigStatus) return;
@@ -2859,6 +2883,8 @@ tabs.forEach(function (btn) {
           if (!notificationsConfigModalBackdrop) return;
           notificationsConfigModalBackdrop.style.display = 'none';
         }
+        window.openNotificationsConfigModal = openNotificationsConfigModal;
+        window.closeNotificationsConfigModal = closeNotificationsConfigModal;
 
         function setNotificationsConfigStatus(message, isError) {
           if (!notificationsConfigStatus) return;
@@ -2950,7 +2976,8 @@ tabs.forEach(function (btn) {
         }
 
         if (openNotificationsConfigBtn) {
-          openNotificationsConfigBtn.addEventListener('click', function () {
+          openNotificationsConfigBtn.addEventListener('click', function (event) {
+            event.preventDefault();
             openNotificationsConfigModal();
           });
         }
@@ -2966,9 +2993,7 @@ tabs.forEach(function (btn) {
         }
 
         if (openPublicFormsConfigBtn) {
-          openPublicFormsConfigBtn.addEventListener('click', function () {
-            openPublicFormsConfigModal();
-          });
+          attachPublicFormsConfigHandler();
         }
         if (publicFormsConfigClose) {
           publicFormsConfigClose.addEventListener('click', function () {
