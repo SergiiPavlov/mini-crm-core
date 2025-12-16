@@ -2714,12 +2714,17 @@ tabs.forEach(function (btn) {
           publicFormsConfigModalBackdrop.style.display = 'none';
         }
         window.closePublicFormsConfigModal = closePublicFormsConfigModal;
+        window.openPublicFormsConfigModal = openPublicFormsConfigModal;
 
+        var publicFormsConfigHandlerAttached = false;
         function attachPublicFormsConfigHandler() {
+          if (publicFormsConfigHandlerAttached) return;
           if (!openPublicFormsConfigBtn) return;
-          openPublicFormsConfigBtn.onclick = function (event) {
-            event.preventDefault();
-            if (event.stopPropagation) {
+          openPublicFormsConfigBtn.addEventListener('click', function (event) {
+            if (event && typeof event.preventDefault === 'function') {
+              event.preventDefault();
+            }
+            if (event && typeof event.stopPropagation === 'function') {
               event.stopPropagation();
             }
             try {
@@ -2727,8 +2732,8 @@ tabs.forEach(function (btn) {
             } catch (err) {
               console.error('Failed to open public forms config modal', err);
             }
-          };
-          window.openPublicFormsConfigModal = openPublicFormsConfigModal;
+          });
+          publicFormsConfigHandlerAttached = true;
         }
 
         attachPublicFormsConfigHandler();
