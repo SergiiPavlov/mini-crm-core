@@ -32,6 +32,8 @@ model Transaction {
   currency    String           @default("UAH")
   category    String?
   description String?
+  publicFormId Int?
+  publicForm   PublicForm?     @relation(fields: [publicFormId], references: [id])
   happenedAt  DateTime         @default(now())
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
@@ -92,6 +94,8 @@ model Case {
   internalNote String?
   status      String
   source      String?
+  publicFormId Int?
+  publicForm   PublicForm? @relation(fields: [publicFormId], references: [id])
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -125,6 +129,9 @@ model PublicForm {
   description String?
   config      Json?
   isActive    Boolean  @default(true)
+
+  cases        Case[]
+  transactions Transaction[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -201,6 +201,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
           data: {
             projectId: project.id,
             contactId: contact.id,
+            publicFormId: publicForm ? publicForm.id : null,
             title: 'Новий лід з сайту',
             description: message || null,
             status: 'new',
@@ -301,6 +302,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
           data: {
             projectId: project.id,
             contactId: contact.id,
+            publicFormId: publicForm ? publicForm.id : null,
             title: 'Нове пожертвування з сайту',
             description: donationDescription || null,
             status: 'new',
@@ -323,6 +325,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
           projectId: project.id,
           contactId: contact.id,
           caseId: donationCase ? donationCase.id : null,
+          publicFormId: publicForm ? publicForm.id : null,
           type: 'income',
           amount,
           currency: 'UAH',
@@ -425,6 +428,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         data: {
           projectId: project.id,
           contactId: contact.id,
+          publicFormId: publicForm ? publicForm.id : null,
           title: 'Нове бронювання з сайту',
           status: 'new',
           source: source || 'booking-widget',
@@ -529,6 +533,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         data: {
           projectId: project.id,
           contactId: contact.id,
+          publicFormId: publicForm ? publicForm.id : null,
           title: 'Новий відгук з сайту',
           status: 'new',
           source: source || 'feedback-widget',
