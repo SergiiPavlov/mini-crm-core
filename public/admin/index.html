@@ -2713,6 +2713,25 @@ tabs.forEach(function (btn) {
           if (!publicFormsConfigModalBackdrop) return;
           publicFormsConfigModalBackdrop.style.display = 'none';
         }
+        window.closePublicFormsConfigModal = closePublicFormsConfigModal;
+
+        function attachPublicFormsConfigHandler() {
+          if (!openPublicFormsConfigBtn) return;
+          openPublicFormsConfigBtn.onclick = function (event) {
+            event.preventDefault();
+            if (event.stopPropagation) {
+              event.stopPropagation();
+            }
+            try {
+              openPublicFormsConfigModal();
+            } catch (err) {
+              console.error('Failed to open public forms config modal', err);
+            }
+          };
+          window.openPublicFormsConfigModal = openPublicFormsConfigModal;
+        }
+
+        attachPublicFormsConfigHandler();
 
         function setPublicFormsConfigStatus(message, isError) {
           if (!publicFormsConfigStatus) return;
@@ -2859,6 +2878,8 @@ tabs.forEach(function (btn) {
           if (!notificationsConfigModalBackdrop) return;
           notificationsConfigModalBackdrop.style.display = 'none';
         }
+        window.openNotificationsConfigModal = openNotificationsConfigModal;
+        window.closeNotificationsConfigModal = closeNotificationsConfigModal;
 
         function setNotificationsConfigStatus(message, isError) {
           if (!notificationsConfigStatus) return;
@@ -2950,7 +2971,8 @@ tabs.forEach(function (btn) {
         }
 
         if (openNotificationsConfigBtn) {
-          openNotificationsConfigBtn.addEventListener('click', function () {
+          openNotificationsConfigBtn.addEventListener('click', function (event) {
+            event.preventDefault();
             openNotificationsConfigModal();
           });
         }
@@ -2966,9 +2988,7 @@ tabs.forEach(function (btn) {
         }
 
         if (openPublicFormsConfigBtn) {
-          openPublicFormsConfigBtn.addEventListener('click', function () {
-            openPublicFormsConfigModal();
-          });
+          attachPublicFormsConfigHandler();
         }
         if (publicFormsConfigClose) {
           publicFormsConfigClose.addEventListener('click', function () {
