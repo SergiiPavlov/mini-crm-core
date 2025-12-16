@@ -2950,9 +2950,12 @@ tabs.forEach(function (btn) {
         }
 
         if (openNotificationsConfigBtn) {
-          openNotificationsConfigBtn.addEventListener('click', function () {
+          openNotificationsConfigBtn.addEventListener('click', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
             openNotificationsConfigModal();
           });
+          window.openNotificationsConfigModal = openNotificationsConfigModal;
         }
         if (notificationsConfigClose) {
           notificationsConfigClose.addEventListener('click', function () {
@@ -2966,9 +2969,12 @@ tabs.forEach(function (btn) {
         }
 
         if (openPublicFormsConfigBtn) {
-          openPublicFormsConfigBtn.addEventListener('click', function () {
+          openPublicFormsConfigBtn.addEventListener('click', function (event) {
+            event.preventDefault();
+            event.stopPropagation();
             openPublicFormsConfigModal();
           });
+          window.openPublicFormsConfigModal = openPublicFormsConfigModal;
         }
         if (publicFormsConfigClose) {
           publicFormsConfigClose.addEventListener('click', function () {
