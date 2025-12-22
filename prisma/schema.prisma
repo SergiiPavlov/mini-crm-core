@@ -46,6 +46,7 @@ model Project {
   id        Int      @id @default(autoincrement())
   name      String
   slug      String   @unique
+  publicKey String   @unique
   config    Json?
   users         User[]
   contacts      Contact[]
@@ -96,6 +97,7 @@ model Case {
   source      String?
   publicFormId Int?
   publicForm   PublicForm? @relation(fields: [publicFormId], references: [id])
+  clientRequestId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -103,6 +105,7 @@ model Case {
   tasks        Task[]
 
   @@unique([id, projectId])
+  @@unique([projectId, clientRequestId])
   @@index([projectId, status])
 }
 

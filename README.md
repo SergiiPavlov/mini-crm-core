@@ -135,7 +135,8 @@ The endpoint will:
 You can embed a ready-made lead form widget on any external site.
 
 1. Make sure you have a Project with a known `slug` (for example `"demo"`).
-2. Your CRM backend must be accessible from the public internet (for example on Render).
+2. Get the project's `publicKey` (it is required for public widget requests).
+3. Your CRM backend must be accessible from the public internet (for example on Render).
 
 Then add this snippet to the client's site:
 
@@ -144,11 +145,13 @@ Then add this snippet to the client's site:
 <script
   src="https://YOUR_CRM_BASE_URL/widget/lead-form.js"
   data-project-slug="demo"
+  data-project-key="YOUR_PUBLIC_KEY"
   data-source="landing-psor"
 ></script>
 ```
 
 - `data-project-slug` — which Project in Mini CRM should receive leads.
+- `data-project-key` — required `publicKey` for the project (sent as `X-Project-Key`).
 - `data-source` — optional label to see where leads come from (e.g. `landing-psor`, `portfolio-site`, etc.).
 
 The script will:
@@ -160,9 +163,12 @@ The script will:
 
 - **Validation** — all mutating endpoints (`/projects`, `/auth/*`, `/contacts`, `/public/forms/:projectSlug/lead`) validate input with Zod. Invalid payloads return `400` with a short description.
 - **Auth** — private routes (`/projects`, `/contacts`, `/auth/me`) require a JWT in `Authorization: Bearer <token>` signed with `JWT_SECRET`.
-- **Rate limiting** — login & owner registration are limited per IP (15 minutes window), public lead forms are limited per IP per minute. This protects from basic brute-force and spam.
+- **Rate limiting** — login & owner registration are limited per IP (15 minutes window), public widgets are limited per IP+project per minute. Env:
+  - `PUBLIC_CONFIG_RL_MAX` (default 60/min)
+  - `PUBLIC_SUBMIT_RL_MAX` (default 10/min)
 - **CORS** — in production, set environment variable `CORS_ORIGINS` to a comma-separated list of allowed origins (e.g. `https://admin.yoursite.com,https://landing.yoursite.com`). In dev, if `CORS_ORIGINS` is empty, any origin is allowed.
 - **Honeypot** — public lead form includes a hidden field. If a bot fills it, the API responds with success but silently ignores the lead. This reduces spam from simple bots.
+- **Idempotency** — public submit endpoints support `X-Request-Id` (recommended). Repeated submissions with the same `X-Request-Id` return the previously created entities.
 
 ## Cases API
 
@@ -274,6 +280,7 @@ Widget usage (lead form):
 <script
   src="https://YOUR_CRM_BASE_URL/widget/lead-form.js"
   data-project-slug="demo"
+  data-project-key="YOUR_PUBLIC_KEY"
   data-source="landing-widget"
 ></script>
 ```

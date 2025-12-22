@@ -29,6 +29,67 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
+
+/**
+ * POST /public-forms/seed
+ * Ensures the default set of public forms exists for the current project.
+ * Creates (upserts) 4 default forms: lead, donation, booking, feedback.
+ */
+router.post('/seed', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const user = req.user;
+    if (!user || !user.projectId) {
+      return res.status(403).json({ error: 'Project context is required' });
+    }
+
+    const projectId = user.projectId;
+
+    const defaults: Array<{ formKey: string; title: string; type: string }> = [
+      { formKey: 'lead', title: 'Залишити запит', type: 'lead' },
+      { formKey: 'donation', title: 'Пожертвування', type: 'donation' },
+      { formKey: 'booking', title: 'Бронювання', type: 'booking' },
+      { formKey: 'feedback', title: 'Відгук', type: 'feedback' },
+    ];
+
+    for (const d of defaults) {
+      const existing = await prisma.publicForm.findFirst({
+        where: { projectId, formKey: d.formKey },
+        select: { id: true },
+      });
+
+      if (!existing) {
+        await prisma.publicForm.create({
+          data: {
+            projectId,
+            formKey: d.formKey,
+            type: d.type,
+            title: d.title,
+            isActive: true,
+          },
+        });
+      } else {
+        await prisma.publicForm.update({
+          where: { id: existing.id },
+          data: {
+            // Keep user changes if they already exist (do not overwrite title/isActive/config)
+            type: d.type,
+          },
+        });
+      }
+    }
+
+    const forms = await prisma.publicForm.findMany({
+      where: { projectId },
+      orderBy: { formKey: 'asc' },
+    });
+
+    return res.json(forms);
+  } catch (error: any) {
+    console.error('Error seeding public forms', error);
+    return res.status(500).json({ error: 'Failed to seed public forms' });
+  }
+});
+
 const updatePublicFormSchema = z.object({
   title: z.string().min(1, 'title is required').max(255).optional(),
   description: z.string().max(2000).nullable().optional(),

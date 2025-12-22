@@ -723,6 +723,31 @@
                 <label>Джерело</label>
                 <div id="case-modal-source"></div>
               </div>
+
+              <div class="field">
+                <label>Фінанси (транзакції по кейсу)</label>
+                <div class="muted" id="case-modal-transactions-summary">—</div>
+                <div style="margin-top:8px;">
+                  <button type="button" class="btn-secondary" id="case-modal-add-transaction">Додати транзакцію</button>
+                </div>
+                <div class="table-wrap" style="margin-top:8px;">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Дата</th>
+                        <th>Тип</th>
+                        <th>Сума</th>
+                        <th>Категорія</th>
+                        <th>Опис</th>
+                      </tr>
+                    </thead>
+                    <tbody id="case-modal-transactions-tbody">
+                      <tr><td colspan="5" class="muted">Немає транзакцій по цьому кейсу</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="muted" style="margin-top:6px;">Порада: клік по рядку відкриває редагування транзакції (категорія/опис).</div>
+              </div>
               <div class="field">
                 <label>Внутрішні нотатки</label>
                 <textarea id="case-modal-internal-note" rows="4" placeholder="Нотатки менеджера по цьому зверненню"></textarea>
@@ -760,14 +785,20 @@
               <div class="field">
                 <label>Дата</label>
                 <div id="transaction-modal-date"></div>
+                <input id="transaction-modal-date-input" class="form-control" type="datetime-local" style="display:none;" />
               </div>
               <div class="field">
                 <label>Тип</label>
                 <div id="transaction-modal-type"></div>
+                <select id="transaction-modal-type-select" class="form-control" style="display:none;">
+                  <option value="income">Доходи</option>
+                  <option value="expense">Витрати</option>
+                </select>
               </div>
               <div class="field">
                 <label>Сума</label>
                 <div id="transaction-modal-amount"></div>
+                <input id="transaction-modal-amount-input" class="form-control" type="number" step="0.01" min="0" style="display:none;" />
               </div>
               <div class="field">
                 <label>Категорія</label>
@@ -855,6 +886,7 @@
       </div>
     </div>
   </div>
+	</div>
 
   <div class="modal-backdrop" id="public-forms-config-modal-backdrop" style="display:none;">
     <div class="modal">
@@ -884,6 +916,7 @@
           </table>
           <div id="public-forms-config-status" class="status" style="margin-top: 8px;"></div>
           <div class="config-actions" style="margin-top: 12px;">
+            <button type="button" class="btn-secondary" id="public-forms-config-seed" style="display:none;">Створити типові форми</button>
             <button type="button" id="public-forms-config-save">Зберегти форми</button>
           </div>
         </div>
@@ -1444,6 +1477,9 @@ var dataCard = document.getElementById('data-card');
         var transactionModalDate = document.getElementById('transaction-modal-date');
         var transactionModalType = document.getElementById('transaction-modal-type');
         var transactionModalAmount = document.getElementById('transaction-modal-amount');
+        var transactionModalDateInput = document.getElementById('transaction-modal-date-input');
+        var transactionModalTypeSelect = document.getElementById('transaction-modal-type-select');
+        var transactionModalAmountInput = document.getElementById('transaction-modal-amount-input');
         var transactionModalCategorySelect = document.getElementById('transaction-modal-category');
         var transactionModalDescription = document.getElementById('transaction-modal-description');
         var transactionModalSaveBtn = document.getElementById('transaction-modal-save');
@@ -1473,6 +1509,9 @@ var dataCard = document.getElementById('data-card');
         var caseModalDescription = document.getElementById('case-modal-description');
         var caseModalContact = document.getElementById('case-modal-contact');
         var caseModalSource = document.getElementById('case-modal-source');
+        var caseModalTransactionsTbody = document.getElementById('case-modal-transactions-tbody');
+        var caseModalTransactionsSummary = document.getElementById('case-modal-transactions-summary');
+        var caseModalAddTransactionBtn = document.getElementById('case-modal-add-transaction');
         var caseModalInternalNote = document.getElementById('case-modal-internal-note');
         var caseStatusConfigModalBackdrop = document.getElementById('case-status-config-modal-backdrop');
         var caseStatusConfigClose = document.getElementById('case-status-config-close');
@@ -1490,6 +1529,7 @@ var dataCard = document.getElementById('data-card');
         var publicFormsConfigModalBackdrop = document.getElementById('public-forms-config-modal-backdrop');
         var publicFormsConfigClose = document.getElementById('public-forms-config-close');
         var publicFormsConfigSave = document.getElementById('public-forms-config-save');
+        var publicFormsConfigSeed = document.getElementById('public-forms-config-seed');
         var openPublicFormsConfigBtn = document.getElementById('open-public-forms-config');
         var publicFormsTbody = document.getElementById('public-forms-tbody');
         var publicFormsConfigStatus = document.getElementById('public-forms-config-status');
@@ -1502,14 +1542,19 @@ var notificationsEmailsInput = document.getElementById('notifications-emails-inp
         var notificationsConfigStatus = document.getElementById('notifications-config-status');
 
         var currentCaseId = null;
+        var currentCaseContactId = null;
+        var currentCaseType = null;
         var currentCaseInitialInternalNote = '';
         var lastCases = [];
         var lastTransactions = [];
         var currentTransactionForModal = null;
+        var currentTransactionModalMode = 'edit'; // 'edit' | 'create'
+        var currentTransactionCreateContext = { caseId: null, contactId: null };
         var caseTasksForm = document.getElementById('case-tasks-form');
         var caseTaskInput = document.getElementById('case-task-input');
         var caseTasksList = document.getElementById('case-tasks-list');
         var currentCaseTasks = [];
+        var currentCaseTransactions = [];
 
 
 
@@ -1800,7 +1845,7 @@ function renderContacts(contacts) {
               : meta && meta.type === 'income'
               ? 'income'
               : null;
-            var type = typeFromCategory || (t.type === 'expense' ? 'expense' : 'income');
+            var type = (t.type === 'income' || t.type === 'expense') ? t.type : (typeFromCategory || 'income');
             var amount = Number(t.amount || 0);
             if (!summary.byCategory[code]) {
               summary.byCategory[code] = {
@@ -1911,7 +1956,7 @@ function renderTransactions(transactions) {
                 : meta && meta.type === 'income'
                 ? 'income'
                 : null;
-              var type = typeFromCategory || (t.type || '');
+              var type = (t.type === 'income' || t.type === 'expense') ? t.type : (typeFromCategory || '');
               var rowClass = '';
               if (type === 'income') rowClass = 'transaction-row-income';
               else if (type === 'expense') rowClass = 'transaction-row-expense';
@@ -2028,9 +2073,112 @@ function renderTransactions(transactions) {
         }
 
 
+        function setTransactionModalMode(mode) {
+          currentTransactionModalMode = mode === 'create' ? 'create' : 'edit';
+
+          var isCreate = currentTransactionModalMode === 'create';
+
+          // toggle readonly display blocks vs inputs
+          if (transactionModalDate) transactionModalDate.style.display = isCreate ? 'none' : '';
+          if (transactionModalType) transactionModalType.style.display = isCreate ? 'none' : '';
+          if (transactionModalAmount) transactionModalAmount.style.display = isCreate ? 'none' : '';
+
+          if (transactionModalDateInput) transactionModalDateInput.style.display = isCreate ? '' : 'none';
+          if (transactionModalTypeSelect) transactionModalTypeSelect.style.display = isCreate ? '' : 'none';
+          if (transactionModalAmountInput) transactionModalAmountInput.style.display = isCreate ? '' : 'none';
+
+          if (transactionModalSaveBtn) {
+            transactionModalSaveBtn.textContent = isCreate ? 'Створити' : 'Зберегти';
+          }
+        }
+
+        function openCreateTransactionModal(ctx) {
+          if (!transactionModalBackdrop) return;
+
+          currentTransactionForModal = null;
+          currentTransactionCreateContext = {
+            caseId: (ctx && ctx.caseId != null) ? Number(ctx.caseId) : null,
+            contactId: (ctx && ctx.contactId != null) ? Number(ctx.contactId) : null,
+          };
+
+          setTransactionModalMode('create');
+
+          try {
+            if (transactionModalTitle) {
+              transactionModalTitle.textContent = 'Нова транзакція';
+            }
+
+            // Defaults
+            var now = new Date();
+            if (transactionModalDateInput) {
+              // datetime-local expects "YYYY-MM-DDTHH:mm"
+              var pad = function (n) { return String(n).padStart(2, '0'); };
+              var localStr =
+                now.getFullYear() + '-' +
+                pad(now.getMonth() + 1) + '-' +
+                pad(now.getDate()) + 'T' +
+                pad(now.getHours()) + ':' +
+                pad(now.getMinutes());
+              transactionModalDateInput.value = localStr;
+            }
+
+            if (transactionModalTypeSelect) {
+              var suggested = (ctx && ctx.suggestedType) ? String(ctx.suggestedType) : 'income';
+              transactionModalTypeSelect.value = (suggested === 'expense') ? 'expense' : 'income';
+            }
+
+            if (transactionModalAmountInput) {
+              transactionModalAmountInput.value = '';
+              transactionModalAmountInput.focus();
+            }
+
+            if (transactionModalDescription) {
+              transactionModalDescription.value = '';
+            }
+
+            // Populate categories
+            if (transactionModalCategorySelect) {
+              while (transactionModalCategorySelect.firstChild) {
+                transactionModalCategorySelect.removeChild(transactionModalCategorySelect.firstChild);
+              }
+
+              var categories = Array.isArray(transactionCategories) ? transactionCategories.slice() : [];
+              if (categories.length) {
+                categories.sort(function (a, b) {
+                  var ao = (typeof a.order === 'number') ? a.order : 0;
+                  var bo = (typeof b.order === 'number') ? b.order : 0;
+                  return ao - bo;
+                });
+              }
+
+              var placeholderOption = document.createElement('option');
+              placeholderOption.value = '';
+              placeholderOption.textContent = 'Оберіть категорію';
+              transactionModalCategorySelect.appendChild(placeholderOption);
+
+              if (categories.length) {
+                categories.forEach(function (cat) {
+                  if (!cat || !cat.code) return;
+                  var opt = document.createElement('option');
+                  opt.value = cat.code;
+                  opt.textContent = cat.label || cat.code;
+                  transactionModalCategorySelect.appendChild(opt);
+                });
+              }
+              transactionModalCategorySelect.value = '';
+            }
+          } catch (e) {
+            console.error('Failed to open create transaction modal', e);
+          }
+
+          transactionModalBackdrop.style.display = 'flex';
+        }
+
         function openTransactionModal(tx) {
           if (!transactionModalBackdrop) return;
           currentTransactionForModal = tx;
+          currentTransactionCreateContext = { caseId: null, contactId: null };
+          setTransactionModalMode('edit');
 
           try {
             if (transactionModalTitle) {
@@ -2101,6 +2249,83 @@ function renderTransactions(transactions) {
             transactionModalBackdrop.style.display = 'none';
           }
           currentTransactionForModal = null;
+          currentTransactionCreateContext = { caseId: null, contactId: null };
+          setTransactionModalMode('edit');
+        }
+
+        function createTransactionFromModal() {
+          try {
+            var type = transactionModalTypeSelect ? transactionModalTypeSelect.value : 'income';
+            if (type !== 'income' && type !== 'expense') type = 'income';
+
+            var amountStr = transactionModalAmountInput ? String(transactionModalAmountInput.value || '').trim() : '';
+            var amount = Number(amountStr);
+            if (!amountStr || Number.isNaN(amount) || amount <= 0) {
+              alert('Вкажіть коректну суму (> 0).');
+              return;
+            }
+
+            var happenedAtIso = undefined;
+            if (transactionModalDateInput && transactionModalDateInput.value) {
+              var d = new Date(transactionModalDateInput.value);
+              if (!Number.isNaN(d.getTime())) {
+                happenedAtIso = d.toISOString();
+              }
+            }
+
+            var payload = {
+              type: type,
+              amount: amount,
+              currency: 'UAH',
+            };
+
+            if (transactionModalCategorySelect && transactionModalCategorySelect.value) {
+              payload.category = transactionModalCategorySelect.value;
+            }
+            if (transactionModalDescription && transactionModalDescription.value) {
+              var desc = String(transactionModalDescription.value || '').trim();
+              if (desc) payload.description = desc;
+            }
+            if (currentTransactionCreateContext && currentTransactionCreateContext.contactId != null) {
+              payload.contactId = currentTransactionCreateContext.contactId;
+            }
+            if (currentTransactionCreateContext && currentTransactionCreateContext.caseId != null) {
+              payload.caseId = currentTransactionCreateContext.caseId;
+            }
+            if (happenedAtIso) {
+              payload.happenedAt = happenedAtIso;
+            }
+
+            authedFetch('/transactions', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            })
+              .then(function (res) {
+                if (!res.ok) {
+                  return res.json().catch(function () { return { error: 'Failed to create transaction' }; })
+                    .then(function (data) { throw new Error(data.error || 'Failed to create transaction'); });
+                }
+                return res.json();
+              })
+              .then(function (created) {
+                // Refresh project transactions view (with current filters) and case transactions
+                if (typeof reloadTransactionsWithFilters === 'function') {
+                  reloadTransactionsWithFilters();
+                }
+                if (currentCaseId && currentTransactionCreateContext && Number(currentTransactionCreateContext.caseId) === Number(currentCaseId)) {
+                  loadCaseTransactions(currentCaseId);
+                }
+                closeTransactionModal();
+              })
+              .catch(function (err) {
+                console.error('Failed to create transaction', err);
+                alert('Не вдалося створити транзакцію: ' + (err && err.message ? err.message : String(err)));
+              });
+          } catch (e) {
+            console.error('createTransactionFromModal failed', e);
+            alert('Не вдалося створити транзакцію.');
+          }
         }
 
         function saveCurrentTransactionChanges() {
@@ -2153,6 +2378,9 @@ function renderTransactions(transactions) {
                 }
               }
               renderTransactions(lastTransactions);
+              if (currentCaseId && updated && updated.caseId != null && Number(updated.caseId) === Number(currentCaseId)) {
+                loadCaseTransactions(currentCaseId);
+              }
               closeTransactionModal();
             })
             .catch(function (err) {
@@ -2327,10 +2555,43 @@ tabs.forEach(function (btn) {
             if (!tx) return;
             openTransactionModal(tx);
           });
+
+        if (caseModalTransactionsTbody) {
+          caseModalTransactionsTbody.addEventListener('click', function (event) {
+            var target = event.target;
+            if (!target) return;
+            var row = target.closest('tr');
+            if (!row) return;
+            var idAttr = row.getAttribute('data-transaction-id');
+            if (!idAttr) return;
+            var idNum = Number(idAttr);
+            if (!Array.isArray(currentCaseTransactions)) return;
+            var tx = currentCaseTransactions.find(function (t) { return Number(t.id) === idNum; });
+            if (!tx) return;
+            openTransactionModal(tx);
+          });
         }
+
+        }
+
+        if (caseModalAddTransactionBtn) {
+          caseModalAddTransactionBtn.addEventListener('click', function () {
+            if (!currentCaseId) return;
+            openCreateTransactionModal({
+              caseId: currentCaseId,
+              contactId: currentCaseContactId,
+              suggestedType: (currentCaseType === 'donation' ? 'income' : 'expense'),
+            });
+          });
+        }
+
 
         if (transactionModalSaveBtn) {
           transactionModalSaveBtn.addEventListener('click', function () {
+            if (currentTransactionModalMode === 'create') {
+              createTransactionFromModal();
+              return;
+            }
             if (!currentTransactionForModal) {
               closeTransactionModal();
               return;
@@ -2414,6 +2675,8 @@ tabs.forEach(function (btn) {
           var c = lastCases.find(function (item) { return item.id === id; });
           if (!c) return;
           currentCaseId = id;
+          currentCaseContactId = (c.contact && c.contact.id != null) ? c.contact.id : (c.contactId != null ? c.contactId : null);
+          currentCaseType = c.type || null;
           caseModalTitle.textContent = 'Кейс #' + id;
           caseModalMainTitle.textContent = c.title || '';
           var modalStatus = c.status || 'new';
@@ -2429,6 +2692,7 @@ tabs.forEach(function (btn) {
           currentCaseTasks = [];
           renderCaseTasks();
           loadCaseTasks(id);
+          loadCaseTransactions(id);
         }
 
 
@@ -2455,6 +2719,100 @@ tabs.forEach(function (btn) {
               renderCaseTasks();
             });
         }
+
+
+        function loadCaseTransactions(caseId) {
+          if (!caseModalTransactionsTbody) return;
+          // reset UI
+          caseModalTransactionsTbody.innerHTML = '<tr><td colspan="5" class="muted">Завантаження...</td></tr>';
+          if (caseModalTransactionsSummary) caseModalTransactionsSummary.textContent = 'Завантаження...';
+
+          authedFetch('/transactions?caseId=' + encodeURIComponent(String(caseId)))
+            .then(function (res) {
+              if (!res.ok) throw new Error('Failed to load case transactions');
+              return res.json();
+            })
+            .then(function (data) {
+              currentCaseTransactions = Array.isArray(data) ? data : [];
+              renderCaseTransactions();
+            })
+            .catch(function (err) {
+              console.error('Failed to load case transactions', err);
+              currentCaseTransactions = [];
+              if (caseModalTransactionsTbody) {
+                caseModalTransactionsTbody.innerHTML =
+                  '<tr><td colspan="5" class="muted">Не вдалося завантажити транзакції</td></tr>';
+              }
+              if (caseModalTransactionsSummary) {
+                caseModalTransactionsSummary.textContent = 'Помилка завантаження';
+              }
+            });
+        }
+
+        function renderCaseTransactions() {
+          if (!caseModalTransactionsTbody) return;
+
+          var list = Array.isArray(currentCaseTransactions) ? currentCaseTransactions : [];
+          if (!list.length) {
+            caseModalTransactionsTbody.innerHTML =
+              '<tr><td colspan="5" class="muted">Немає транзакцій по цьому кейсу</td></tr>';
+            if (caseModalTransactionsSummary) caseModalTransactionsSummary.textContent = '0 транзакцій';
+            return;
+          }
+
+          // Case-level finance summary (context, not a duplicate of the global Finance table)
+          // We treat tx.type as the source of truth; category meta is only a fallback elsewhere.
+          var incomeTotal = 0;
+          var expenseTotal = 0;
+          var unknownTotal = 0;
+          var currency = 'UAH';
+          list.forEach(function (tx) {
+            var amt = Number(tx.amount || 0);
+            if (tx.currency) currency = tx.currency;
+            if (tx.type === 'expense') {
+              expenseTotal += amt;
+            } else if (tx.type === 'income') {
+              incomeTotal += amt;
+            } else {
+              unknownTotal += amt;
+            }
+          });
+          var balance = incomeTotal - expenseTotal;
+          if (caseModalTransactionsSummary) {
+            var text =
+              list.length + ' транзакцій · Доходи: ' +
+              formatCurrency(incomeTotal, currency) +
+              ' · Витрати: ' + formatCurrency(expenseTotal, currency) +
+              ' · Баланс: ' + formatCurrency(balance, currency);
+            if (unknownTotal) {
+              text += ' · Невідомо: ' + formatCurrency(unknownTotal, currency);
+            }
+            caseModalTransactionsSummary.textContent = text;
+          }
+
+          var rows = list
+            .map(function (tx) {
+              var dateValue = tx.happenedAt || tx.createdAt;
+              var type = tx.type || '';
+              var typeLabel = type === 'income' ? 'Доходи' : (type === 'expense' ? 'Витрати' : (type || '—'));
+              var categoryHtml = tx.category ? renderTransactionCategoryBadge(tx.category) : '<span class="muted">—</span>';
+              var desc = (tx.description || '').trim();
+
+              return (
+                '<tr class="case-tx-row" data-transaction-id="' + tx.id + '">' +
+                '<td>' + (dateValue ? formatDate(dateValue) : '') + '</td>' +
+                '<td>' + typeLabel + '</td>' +
+                '<td>' + formatCurrency(tx.amount, tx.currency) + '</td>' +
+                '<td>' + categoryHtml + '</td>' +
+                '<td>' + (desc ? escapeHtml(desc) : '<span class="muted">—</span>') + '</td>' +
+                '</tr>'
+              );
+            })
+            .join('');
+
+          caseModalTransactionsTbody.innerHTML = rows;
+        }
+
 
         function renderCaseTasks() {
           if (!caseTasksList) return;
@@ -2755,8 +3113,12 @@ tabs.forEach(function (btn) {
             td.textContent = 'Немає форм для цього проєкту';
             tr.appendChild(td);
             publicFormsTbody.appendChild(tr);
+            if (publicFormsConfigSeed) publicFormsConfigSeed.style.display = 'inline-flex';
+            if (publicFormsConfigSave) publicFormsConfigSave.disabled = true;
             return;
           }
+          if (publicFormsConfigSeed) publicFormsConfigSeed.style.display = 'none';
+          if (publicFormsConfigSave) publicFormsConfigSave.disabled = false;
           forms.forEach(function (form) {
             var tr = document.createElement('tr');
 
@@ -2791,6 +3153,8 @@ tabs.forEach(function (btn) {
           publicFormsTbody.innerHTML =
             '<tr><td colspan="3" class="muted">Завантаження...</td></tr>';
           setPublicFormsConfigStatus('Завантаження...', false);
+          if (publicFormsConfigSeed) publicFormsConfigSeed.style.display = 'none';
+          if (publicFormsConfigSave) publicFormsConfigSave.disabled = true;
           authedFetch('/public-forms')
             .then(function (res) {
               if (!res.ok) throw new Error('Failed to load public forms');
@@ -2806,6 +3170,29 @@ tabs.forEach(function (btn) {
               setPublicFormsConfigStatus('Не вдалося завантажити форми', true);
             });
         }
+
+        function seedPublicFormsConfig() {
+          setPublicFormsConfigStatus('Створення типових форм...', false);
+          if (publicFormsConfigSeed) publicFormsConfigSeed.disabled = true;
+          authedFetch('/public-forms/seed', { method: 'POST' })
+            .then(function (res) {
+              if (!res.ok) throw new Error('Failed to seed public forms');
+              return res.json();
+            })
+            .then(function (data) {
+              var forms = Array.isArray(data) ? data : [];
+              renderPublicFormsRows(forms);
+              setPublicFormsConfigStatus('Типові форми створено', false);
+            })
+            .catch(function (err) {
+              console.error('Failed to seed public forms', err);
+              setPublicFormsConfigStatus('Не вдалося створити типові форми', true);
+            })
+            .finally(function () {
+              if (publicFormsConfigSeed) publicFormsConfigSeed.disabled = false;
+            });
+        }
+
 
         function collectPublicFormsChanges() {
           if (!publicFormsTbody) return [];
@@ -3004,6 +3391,11 @@ tabs.forEach(function (btn) {
         if (publicFormsConfigSave) {
           publicFormsConfigSave.addEventListener('click', function () {
             savePublicFormsConfig();
+          });
+        }
+        if (publicFormsConfigSeed) {
+          publicFormsConfigSeed.addEventListener('click', function () {
+            seedPublicFormsConfig();
           });
         }
 

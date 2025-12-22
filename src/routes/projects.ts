@@ -258,6 +258,7 @@ router.get('/current', requireAuth, async (req: AuthRequest, res) => {
       id: project.id,
       name: project.name,
       slug: project.slug,
+      publicKey: project.publicKey,
       config,
     });
   } catch (error) {
