@@ -34,6 +34,33 @@
         font-size: 13px;
         opacity: 0.9;
       }
+
+      .header-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .project-switcher {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .project-switcher select {
+        max-width: 260px;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #334155;
+        background: #0b1220;
+        color: #e5e7eb;
+        font-size: 13px;
+      }
+      .project-switcher .btn-secondary {
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      }
       main {
         flex: 1;
         max-width: 1120px;
@@ -506,7 +533,14 @@
     <div class="app-shell">
       <header>
         <h1>Mini CRM Admin</h1>
-        <div class="user-info" id="user-info">Не авторизовано</div>
+        <div class="header-right">
+          <div class="project-switcher" id="project-switcher" style="display:none;">
+            <select id="project-select" title="Активний проєкт"></select>
+            <button type="button" class="btn-secondary" id="project-switch-apply" title="Перемкнути проєкт">OK</button>
+            <button type="button" class="btn-secondary" id="open-project-access" title="Доступ та інвайти">Доступ</button>
+          </div>
+          <div class="user-info" id="user-info">Не авторизовано</div>
+        </div>
       </header>
       <main>
         <div class="card" id="login-card">
@@ -533,6 +567,7 @@
             <button class="tab-btn active" data-tab="cases">Звернення (Cases)</button>
             <button class="tab-btn" data-tab="contacts">Контакти (Contacts)</button>
             <button class="tab-btn" data-tab="transactions">Фінанси (Transactions)</button>
+            <button class="tab-btn" data-tab="integration">Integration</button>
           </div>
 
           <div id="cases-view">
@@ -691,6 +726,101 @@
             </div>
 
             <div id="transactions-category-summary" style="margin-top:16px;"></div>
+          </div>
+
+          <div id="integration-view" style="display:none; padding:16px 0; min-height:260px; background:#f9fafb;">
+            <h2 style="margin:0 0 8px 0;font-size:18px;">Integration</h2>
+            <div class="muted">Поточний проєкт: <strong id="integration-project-label">—</strong>. Нижче — ключі, приклади вставки та allowlist доменів.</div>
+
+            <div style="margin-top:12px; display:flex; gap:12px; flex-wrap:wrap;">
+              <div class="card" style="flex:1 1 320px; padding:12px;">
+                <div class="muted" style="margin-bottom:6px;">Project slug</div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <input id="integration-project-slug" class="form-control" type="text" readonly />
+                  <button type="button" class="btn btn-secondary" id="copy-project-slug">Copy</button>
+                </div>
+                <div class="muted" style="margin-top:10px; margin-bottom:6px;">Public key (X-Project-Key)</div>
+                <div style="display:flex; gap:8px; align-items:center;">
+                  <input id="integration-project-key" class="form-control" type="password" readonly />
+                  <button type="button" class="btn btn-secondary" id="toggle-project-key">Show</button>
+                  <button type="button" class="btn btn-secondary" id="copy-project-key">Copy</button>
+                </div>
+                <div class="muted" style="margin-top:8px;">Порада: ключ не зберігайте у фронтенді, якщо не потрібно. Для віджетів — потрібен.</div>
+              </div>
+
+              <div class="card" style="flex:1 1 520px; padding:12px;">
+                <div class="muted" style="margin-bottom:8px;">Вставка віджетів (готові <code>&lt;script&gt;</code>)</div>
+                <div class="muted" style="margin-bottom:6px;">Lead / Donation / Booking / Feedback</div>
+                <textarea id="integration-snippets" class="form-control" style="width:100%; min-height:180px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size:12px;"></textarea>
+                <div style="margin-top:8px; display:flex; gap:8px;">
+                  <button type="button" class="btn btn-secondary" id="copy-snippets">Copy all</button>
+                  <button type="button" class="btn btn-secondary" id="refresh-integration">Refresh</button>
+                </div>
+                <div class="muted" style="margin-top:8px;">За потреби додайте <code>data-api-base</code>, якщо CRM хоститься на іншому домені.</div>
+              </div>
+            </div>
+
+            
+            <div class="card" style="margin-top:12px; padding:12px;">
+              <div class="muted" style="margin-bottom:8px;">CLI / cURL приклади (швидка перевірка без UI)</div>
+              <div class="muted" style="margin-bottom:6px;">Підставте <code>ORIGIN</code> домен вашого сайту (і додайте його в allowlist вище). Далі виконайте команди у терміналі.</div>
+              <textarea id="integration-curl" class="form-control" style="width:100%; min-height:220px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace; font-size:12px;"></textarea>
+              <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-secondary" id="copy-curl">Copy cURL</button>
+                <button type="button" class="btn btn-secondary" id="download-test-html">Download test-widget.html</button>
+              </div>
+              <div class="muted" style="margin-top:8px;">Файл <code>test-widget.html</code> — локальна сторінка, яка підключає всі 4 віджети з поточними <code>slug</code> та <code>publicKey</code>. Відкрийте її в браузері та перевірте сабміти.</div>
+            </div>
+
+<div class="card" style="margin-top:12px; padding:12px;">
+              <div class="muted" style="margin-bottom:8px;">Allowlist доменів (CORS + Origin/Referer validation для public endpoints)</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <input id="origin-input" class="form-control" type="text" placeholder="https://example.com" style="min-width:280px;" />
+                <button type="button" class="btn btn-secondary" id="origin-add">Add</button>
+                <div class="muted" id="origin-status" style="margin-left:4px;"></div>
+              </div>
+              <div class="table-wrap" style="margin-top:10px;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Origin</th>
+                      <th>Created</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="origins-tbody">
+                    <tr><td colspan="3" class="muted">Немає даних</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="muted" style="margin-top:8px;">Якщо список порожній — CORS для public endpointів бере legacy CORS_ORIGINS (або дозволяє все в dev). Як тільки додасте хоча б 1 домен — CRM перейде у “strict mode” для цього проєкту.</div>
+            </div>
+
+            <div class="card" style="margin-top:12px; padding:12px;">
+              <div class="muted" style="margin-bottom:8px;">Public forms (widgets) — керування активністю</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button type="button" class="btn btn-secondary" id="integration-seed-public-forms">Seed default forms</button>
+                <button type="button" class="btn btn-secondary" id="integration-refresh-public-forms">Refresh forms</button>
+                <div class="muted" id="integration-public-forms-status" style="margin-left:4px;"></div>
+              </div>
+              <div class="table-wrap" style="margin-top:10px;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Key</th>
+                      <th>Type</th>
+                      <th>Title</th>
+                      <th>Status</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="integration-public-forms-tbody">
+                    <tr><td colspan="5" class="muted">Немає даних</td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="muted" style="margin-top:8px;">Порада: якщо форма вимкнена — public submit поверне <code>410 Form is disabled</code>. Це нормально.</div>
+            </div>
           </div>
 
           </div>
@@ -924,7 +1054,69 @@
     </div>
   </div>
 
-      <script>
+      
+      <div class="modal-backdrop" id="project-access-modal-backdrop" style="display:none;">
+        <div class="modal">
+          <div class="modal-header">
+            <h2>Доступ до проєкту та інвайти</h2>
+            <button class="modal-close" id="project-access-close">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div id="project-access-project-info" class="muted" style="margin-bottom:10px;"></div>
+
+            <div class="card" style="box-shadow:none; border:1px solid #e5e7eb; padding:12px; margin-bottom:12px;">
+              <div style="font-weight:600; margin-bottom:6px;">Створити інвайт</div>
+              <div style="display:flex; gap:8px; align-items:end; flex-wrap:wrap;">
+                <div class="field" style="margin:0; min-width:140px;">
+                  <label for="invite-role">Роль</label>
+                  <select id="invite-role">
+                    <option value="admin" selected>admin</option>
+                    <option value="viewer">viewer</option>
+                  </select>
+                </div>
+                <div class="field" style="margin:0; min-width:160px;">
+                  <label for="invite-expires-days">Днів до завершення</label>
+                  <input id="invite-expires-days" type="number" min="1" max="365" value="7"/>
+                </div>
+                <button type="button" class="btn" id="invite-create-btn" style="height:40px;">Створити</button>
+                <div id="invites-status" class="status" style="margin:0;"></div>
+              </div>
+              <div id="invite-create-out" class="muted" style="margin-top:8px;"></div>
+            </div>
+
+            <div class="card" style="box-shadow:none; border:1px solid #e5e7eb; padding:12px; margin-bottom:12px;">
+              <div style="font-weight:600; margin-bottom:6px;">Активні інвайти</div>
+              <table class="table" style="margin-top:0;">
+                <thead>
+                  <tr>
+                    <th>Token</th>
+                    <th>Role</th>
+                    <th>Expires</th>
+                    <th>Created</th>
+                  </tr>
+                </thead>
+                <tbody id="invites-tbody">
+                  <tr><td colspan="4" class="muted">Завантаження...</td></tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="card" style="box-shadow:none; border:1px solid #e5e7eb; padding:12px;">
+              <div style="font-weight:600; margin-bottom:6px;">Прийняти інвайт (для іншого користувача)</div>
+              <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+                <input id="invite-accept-token" class="mono" type="text" placeholder="встав token інвайта" style="min-width:260px; flex:1;"/>
+                <button type="button" class="btn-secondary" id="invite-accept-btn">Прийняти</button>
+                <div id="invite-accept-status" class="status" style="margin:0;"></div>
+              </div>
+              <div class="muted" style="margin-top:6px;">Після прийняття інвайта ви зможете перемкнутися на проєкт у верхньому селекторі.</div>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn-secondary" id="project-access-cancel">Закрити</button>
+          </div>
+        </div>
+      </div>
+<script>
       (function () {
         var apiBase = window.location.origin;
         var tokenKey = 'mini-crm-admin-token';
@@ -1255,6 +1447,28 @@ var currentCaseFilter = 'all';
         var logoutBtn = document.getElementById('logout-btn');
         var loginStatus = document.getElementById('login-status');
         var userInfoEl = document.getElementById('user-info');
+                var projectSwitcherEl = document.getElementById('project-switcher');
+        var projectSelectEl = document.getElementById('project-select');
+        var projectSwitchApplyBtn = document.getElementById('project-switch-apply');
+        var openProjectAccessBtn = document.getElementById('open-project-access');
+
+        var projectAccessModalBackdrop = document.getElementById('project-access-modal-backdrop');
+        var projectAccessClose = document.getElementById('project-access-close');
+        var projectAccessCancel = document.getElementById('project-access-cancel');
+        var projectAccessProjectInfo = document.getElementById('project-access-project-info');
+
+        var inviteRoleSelect = document.getElementById('invite-role');
+        var inviteExpiresInput = document.getElementById('invite-expires-days');
+        var inviteCreateBtn = document.getElementById('invite-create-btn');
+        var inviteCreateOut = document.getElementById('invite-create-out');
+        var invitesTbody = document.getElementById('invites-tbody');
+        var invitesStatus = document.getElementById('invites-status');
+        var inviteAcceptTokenInput = document.getElementById('invite-accept-token');
+        var inviteAcceptBtn = document.getElementById('invite-accept-btn');
+        var inviteAcceptStatus = document.getElementById('invite-accept-status');
+
+        var projectsList = [];
+        var currentProject = null;
         
         function getTransactionCategoryMeta(code) {
           return transactionCategoryConfigMap[code] || null;
@@ -1468,6 +1682,7 @@ var dataCard = document.getElementById('data-card');
         var casesView = document.getElementById('cases-view');
         var contactsView = document.getElementById('contacts-view');
         var transactionsView = document.getElementById('transactions-view');
+        var integrationView = document.getElementById('integration-view');
         var transactionsTbody = document.getElementById('transactions-tbody');
         var transactionsCountEl = document.getElementById('transactions-count');
         var transactionsDebugEl = document.getElementById('transactions-debug');
@@ -1498,6 +1713,32 @@ var dataCard = document.getElementById('data-card');
         var summaryExpenseEl = document.getElementById('summary-expense');
         var summaryNetEl = document.getElementById('summary-net');
         var transactionsCategorySummaryEl = document.getElementById('transactions-category-summary');
+
+        // Integration (P2-min)
+        var integrationProjectLabel = document.getElementById('integration-project-label');
+        var integrationProjectSlugInput = document.getElementById('integration-project-slug');
+        var integrationProjectKeyInput = document.getElementById('integration-project-key');
+        var copyProjectSlugBtn = document.getElementById('copy-project-slug');
+        var toggleProjectKeyBtn = document.getElementById('toggle-project-key');
+        var copyProjectKeyBtn = document.getElementById('copy-project-key');
+        var integrationSnippetsTextarea = document.getElementById('integration-snippets');
+        var copySnippetsBtn = document.getElementById('copy-snippets');
+        var refreshIntegrationBtn = document.getElementById('refresh-integration');
+        var originInput = document.getElementById('origin-input');
+        var originAddBtn = document.getElementById('origin-add');
+        var originStatusEl = document.getElementById('origin-status');
+        var originsTbody = document.getElementById('origins-tbody');
+
+        var integrationCurlTextarea = document.getElementById('integration-curl');
+        var copyCurlBtn = document.getElementById('copy-curl');
+        var downloadTestHtmlBtn = document.getElementById('download-test-html');
+
+        
+        // Integration: public forms quick controls
+        var integrationSeedPublicFormsBtn = document.getElementById('integration-seed-public-forms');
+        var integrationRefreshPublicFormsBtn = document.getElementById('integration-refresh-public-forms');
+        var integrationPublicFormsStatusEl = document.getElementById('integration-public-forms-status');
+        var integrationPublicFormsTbody = document.getElementById('integration-public-forms-tbody');
 
         var caseModalBackdrop = document.getElementById('case-modal-backdrop');
         var caseModalClose = document.getElementById('case-modal-close');
@@ -1533,7 +1774,6 @@ var dataCard = document.getElementById('data-card');
         var openPublicFormsConfigBtn = document.getElementById('open-public-forms-config');
         var publicFormsTbody = document.getElementById('public-forms-tbody');
         var publicFormsConfigStatus = document.getElementById('public-forms-config-status');
-var notificationsEmailsInput = document.getElementById('notifications-emails-input');
         var notifyOnLeadCheckbox = document.getElementById('notify-on-lead');
         var notifyOnDonationCheckbox = document.getElementById('notify-on-donation');
         var notifyOnBookingCheckbox = document.getElementById('notify-on-booking');
@@ -1563,14 +1803,26 @@ var notificationsEmailsInput = document.getElementById('notifications-emails-inp
           loginStatus.className = 'status' + (isError ? ' error' : message ? ' ok' : '');
         }
 
+        
         function setUserInfo(user) {
           if (!user) {
             userInfoEl.textContent = 'Не авторизовано';
+            if (projectSwitcherEl) projectSwitcherEl.style.display = 'none';
+            currentProject = null;
             return;
           }
+          var projectLabel = currentProject && (currentProject.name || currentProject.slug)
+            ? (currentProject.name || currentProject.slug)
+            : ('#' + user.projectId);
+
           userInfoEl.textContent =
-            user.email + ' · роль: ' + user.role + ' · проєкт #' + user.projectId;
+            user.email + ' · роль: ' + user.role + ' · проєкт: ' + projectLabel;
+
+          if (projectSwitcherEl) {
+            projectSwitcherEl.style.display = '';
+          }
         }
+
 
         function getToken() {
           return window.localStorage.getItem(tokenKey);
@@ -1595,6 +1847,277 @@ var notificationsEmailsInput = document.getElementById('notifications-emails-inp
           );
           headers['Authorization'] = 'Bearer ' + token;
           return fetch(apiBase + path, Object.assign({}, options, { headers: headers }));
+        }
+
+
+        function safeJson(res) {
+          return res.json().catch(function () { return null; });
+        }
+
+        function loadProjectsList() {
+          return authedFetch('/projects')
+            .then(function (res) {
+              if (!res.ok) throw new Error('Failed to list projects');
+              return res.json();
+            })
+            .then(function (data) {
+              projectsList = Array.isArray(data) ? data : [];
+              return projectsList;
+            });
+        }
+
+        function loadCurrentProject() {
+          return authedFetch('/projects/current')
+            .then(function (res) {
+              if (!res.ok) throw new Error('Failed to load current project');
+              return res.json();
+            })
+            .then(function (data) {
+              currentProject = data || null;
+              return currentProject;
+            });
+        }
+
+        function renderProjectSelect(activeProjectId) {
+          if (!projectSelectEl) return;
+          projectSelectEl.innerHTML = '';
+          if (!projectsList || !projectsList.length) {
+            var opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = 'Немає проєктів';
+            projectSelectEl.appendChild(opt);
+            projectSelectEl.disabled = true;
+            if (projectSwitchApplyBtn) projectSwitchApplyBtn.disabled = true;
+            return;
+          }
+
+          projectSelectEl.disabled = false;
+          if (projectSwitchApplyBtn) projectSwitchApplyBtn.disabled = false;
+
+          projectsList.forEach(function (m) {
+            var p = m.project || {};
+            var opt = document.createElement('option');
+            opt.value = String(p.id);
+            var label = (p.name || p.slug || ('#' + p.id)) + ' (' + (m.role || 'member') + ')';
+            opt.textContent = label;
+            if (activeProjectId && Number(p.id) === Number(activeProjectId)) {
+              opt.selected = true;
+            }
+            projectSelectEl.appendChild(opt);
+          });
+        }
+
+        function refreshProjectHeader(user) {
+          if (!user) return Promise.resolve();
+          return Promise.all([loadCurrentProject(), loadProjectsList()])
+            .then(function () {
+              renderProjectSelect(user.projectId);
+              setUserInfo(user);
+            })
+            .catch(function (err) {
+              console.warn('Failed to refresh project header', err);
+              renderProjectSelect(user.projectId);
+              setUserInfo(user);
+            });
+        }
+
+        function selectProject(projectId) {
+          return authedFetch('/projects/select', {
+            method: 'POST',
+            body: JSON.stringify({ projectId: Number(projectId) }),
+          })
+            .then(function (res) {
+              if (!res.ok) {
+                return safeJson(res).then(function (data) {
+                  throw new Error((data && data.error) || 'Не вдалося перемкнути проєкт');
+                });
+              }
+              return res.json();
+            })
+            .then(function (data) {
+              if (data && data.token) setToken(data.token);
+              if (data && data.user) {
+                // token already contains role + projectId
+                return refreshProjectHeader(data.user).then(function () {
+                  loadProjectConfig().finally(function () {
+                    if (typeof updateTransactionCategoryFilterOptions === 'function') {
+                      updateTransactionCategoryFilterOptions();
+                    }
+                    loadData();
+                  });
+                });
+              }
+            });
+        }
+
+        function openProjectAccessModal(user) {
+          if (!projectAccessModalBackdrop) return;
+          if (projectAccessModalBackdrop.style.display !== 'none') return;
+
+          projectAccessModalBackdrop.style.display = 'flex';
+          inviteCreateOut.textContent = '';
+          if (invitesStatus) {
+            invitesStatus.textContent = '';
+            invitesStatus.className = 'status';
+          }
+          if (inviteAcceptStatus) {
+            inviteAcceptStatus.textContent = '';
+            inviteAcceptStatus.className = 'status';
+          }
+
+          Promise.all([loadCurrentProject(), loadInvitesList()])
+            .then(function () {
+              renderProjectAccessInfo(user);
+            })
+            .catch(function (err) {
+              console.error('Failed to open project access modal', err);
+              renderProjectAccessInfo(user);
+            });
+        }
+
+        function closeProjectAccessModal() {
+          if (!projectAccessModalBackdrop) return;
+          projectAccessModalBackdrop.style.display = 'none';
+        }
+
+        function renderProjectAccessInfo(user) {
+          if (!projectAccessProjectInfo) return;
+          var p = currentProject || {};
+          var lines = [];
+          if (p.name || p.slug) lines.push('<div><b>Проєкт:</b> ' + escapeHtml(p.name || '') + ' <span class="muted">(' + escapeHtml(p.slug || '') + ')</span></div>');
+          lines.push('<div><b>projectId:</b> <span class="mono">' + escapeHtml(String(p.id || (user ? user.projectId : ''))) + '</span></div>');
+          if (p.publicKey) lines.push('<div><b>publicKey:</b> <span class="mono">' + escapeHtml(String(p.publicKey)) + '</span></div>');
+          lines.push('<div class="muted" style="margin-top:6px;">Інвайти працюють тільки для вашого поточного проєкту. Ролі: owner/admin можуть створювати інвайти; viewer — лише приймати.</div>');
+          projectAccessProjectInfo.innerHTML = lines.join('');
+        }
+
+        function setInvitesStatus(message, isError) {
+          if (!invitesStatus) return;
+          invitesStatus.textContent = message || '';
+          invitesStatus.className = 'status' + (isError ? ' error' : message ? ' ok' : '');
+        }
+
+        function loadInvitesList() {
+          if (!invitesTbody) return Promise.resolve([]);
+          invitesTbody.innerHTML = '<tr><td colspan="4" class="muted">Завантаження...</td></tr>';
+          return authedFetch('/invites')
+            .then(function (res) {
+              if (!res.ok) throw new Error('Failed to list invites');
+              return res.json();
+            })
+            .then(function (data) {
+              var invites = Array.isArray(data) ? data : [];
+              renderInvites(invites);
+              return invites;
+            })
+            .catch(function (err) {
+              console.error('Failed to load invites', err);
+              invitesTbody.innerHTML = '<tr><td colspan="4" class="muted">Не вдалося завантажити</td></tr>';
+              return [];
+            });
+        }
+
+        function renderInvites(invites) {
+          if (!invitesTbody) return;
+          if (!invites || !invites.length) {
+            invitesTbody.innerHTML = '<tr><td colspan="4" class="muted">Немає активних інвайтів</td></tr>';
+            return;
+          }
+          invitesTbody.innerHTML = invites.map(function (i) {
+            var token = i.token || '';
+            return (
+              '<tr>' +
+              '<td class="mono" style="max-width:260px; overflow:hidden; text-overflow:ellipsis;">' + escapeHtml(token) + '</td>' +
+              '<td>' + escapeHtml(i.role || '') + '</td>' +
+              '<td>' + escapeHtml(i.expiresAt ? formatDate(i.expiresAt) : '—') + '</td>' +
+              '<td>' + escapeHtml(i.createdAt ? formatDate(i.createdAt) : '—') + '</td>' +
+              '</tr>'
+            );
+          }).join('');
+        }
+
+        function createInvite() {
+          var role = inviteRoleSelect ? inviteRoleSelect.value : 'admin';
+          var days = inviteExpiresInput ? Number(inviteExpiresInput.value || 7) : 7;
+          if (!days || Number.isNaN(days) || days < 1) days = 7;
+
+          setInvitesStatus('Створення інвайта...', false);
+
+          return authedFetch('/invites', {
+            method: 'POST',
+            body: JSON.stringify({ role: role, expiresInDays: days }),
+          })
+            .then(function (res) {
+              if (!res.ok) {
+                return safeJson(res).then(function (data) {
+                  throw new Error((data && data.error) || 'Не вдалося створити інвайт');
+                });
+              }
+              return res.json();
+            })
+            .then(function (data) {
+              setInvitesStatus('Інвайт створено', false);
+              var token = data && data.token ? data.token : '';
+              if (inviteCreateOut) {
+                inviteCreateOut.innerHTML =
+                  '<div>Token: <span class="mono">' + escapeHtml(token) + '</span></div>' +
+                  '<div class="muted" style="margin-top:4px;">Передайте цей token іншому користувачу (він має бути залогінений) і він натисне "Прийняти інвайт".</div>';
+              }
+              return loadInvitesList();
+            })
+            .catch(function (err) {
+              console.error('Invite create error', err);
+              setInvitesStatus(err.message || 'Помилка створення інвайта', true);
+            });
+        }
+
+        function acceptInvite() {
+          var token = (inviteAcceptTokenInput && inviteAcceptTokenInput.value ? inviteAcceptTokenInput.value : '').trim();
+          if (!token) {
+            if (inviteAcceptStatus) {
+              inviteAcceptStatus.textContent = 'Вкажіть token';
+              inviteAcceptStatus.className = 'status error';
+            }
+            return Promise.resolve();
+          }
+          if (inviteAcceptStatus) {
+            inviteAcceptStatus.textContent = 'Приймаємо...';
+            inviteAcceptStatus.className = 'status';
+          }
+
+          return authedFetch('/invites/accept', {
+            method: 'POST',
+            body: JSON.stringify({ token: token }),
+          })
+            .then(function (res) {
+              if (!res.ok) {
+                return safeJson(res).then(function (data) {
+                  throw new Error((data && data.error) || 'Не вдалося прийняти інвайт');
+                });
+              }
+              return res.json();
+            })
+            .then(function (data) {
+              if (inviteAcceptStatus) {
+                inviteAcceptStatus.textContent = 'Готово. Проєкт додано.';
+                inviteAcceptStatus.className = 'status ok';
+              }
+              if (inviteAcceptTokenInput) inviteAcceptTokenInput.value = '';
+              return loadProjectsList().then(function () {
+                // optional: auto-switch to invited project
+                if (data && data.projectId) {
+                  return selectProject(data.projectId);
+                }
+                return Promise.resolve();
+              });
+            })
+            .catch(function (err) {
+              console.error('Invite accept error', err);
+              if (inviteAcceptStatus) {
+                inviteAcceptStatus.textContent = err.message || 'Помилка прийняття інвайта';
+                inviteAcceptStatus.className = 'status error';
+              }
+            });
         }
 
         function formatDate(iso) {
@@ -2505,6 +3028,430 @@ function loadData() {
             });
         }
 
+        // ------------------------------
+        // Integration (P2-min)
+        // ------------------------------
+
+        function safeCopy(text) {
+          if (!text) return;
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).catch(function () {});
+            return;
+          }
+          try {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          } catch (e) {}
+        }
+
+        function setOriginStatus(text, isError) {
+          if (!originStatusEl) return;
+          originStatusEl.textContent = text || '';
+          originStatusEl.style.color = isError ? '#b91c1c' : '#065f46';
+        }
+
+        function setIntegrationPublicFormsStatus(text, isError) {
+          if (!integrationPublicFormsStatusEl) return;
+          integrationPublicFormsStatusEl.textContent = text || '';
+          integrationPublicFormsStatusEl.style.color = isError ? '#b91c1c' : '#065f46';
+        }
+
+        function renderIntegrationPublicFormsTable(forms) {
+          if (!integrationPublicFormsTbody) return;
+          if (!Array.isArray(forms) || forms.length === 0) {
+            integrationPublicFormsTbody.innerHTML = '<tr><td colspan="5" class="muted">Порожньо</td></tr>';
+            return;
+          }
+
+          integrationPublicFormsTbody.innerHTML = forms
+            .map(function (f) {
+              var status = f.isActive ? '<span class="badge" style="background:#ecfdf3;color:#15803d;">Active</span>' : '<span class="badge" style="background:#fef2f2;color:#b91c1c;">Disabled</span>';
+              var btnLabel = f.isActive ? 'Disable' : 'Enable';
+              return (
+                '<tr data-form-id="' + f.id + '" data-form-active="' + (f.isActive ? '1' : '0') + '">' +
+                  '<td><code>' + escapeHtml(String(f.formKey || '')) + '</code></td>' +
+                  '<td class="muted">' + escapeHtml(String(f.type || '')) + '</td>' +
+                  '<td>' + escapeHtml(String(f.title || '')) + '</td>' +
+                  '<td>' + status + '</td>' +
+                  '<td style="text-align:right;">' +
+                    '<button type="button" class="btn btn-secondary btn-ghost integration-form-toggle" data-id="' + f.id + '">' + btnLabel + '</button>' +
+                  '</td>' +
+                '</tr>'
+              );
+            })
+            .join('');
+        }
+
+        function loadIntegrationPublicForms() {
+          setIntegrationPublicFormsStatus('', false);
+          return authedFetch('/public-forms')
+            .then(function (res) {
+              if (!res.ok) throw new Error('Failed to load public forms');
+              return res.json();
+            })
+            .then(function (data) {
+              renderIntegrationPublicFormsTable(data);
+            })
+            .catch(function (err) {
+              console.error('Public forms load failed', err);
+              setIntegrationPublicFormsStatus('Failed to load forms', true);
+            });
+        }
+
+        function buildWidgetSnippets(projectSlug, projectKey) {
+          var base = apiBase;
+          var lines = [];
+          lines.push('<!-- Lead form -->');
+          lines.push(
+            '<script src="' + base + '/widget/lead-form.js" data-project-slug="' + projectSlug + '" data-project-key="' + projectKey + '"><\/script>'
+          );
+          lines.push('');
+          lines.push('<!-- Donation form -->');
+          lines.push(
+            '<script src="' + base + '/widget/donation-form.js" data-project-slug="' + projectSlug + '" data-project-key="' + projectKey + '"><\/script>'
+          );
+          lines.push('');
+          lines.push('<!-- Booking form -->');
+          lines.push(
+            '<script src="' + base + '/widget/booking-form.js" data-project-slug="' + projectSlug + '" data-project-key="' + projectKey + '"><\/script>'
+          );
+          lines.push('');
+          lines.push('<!-- Feedback form -->');
+          lines.push(
+            '<script src="' + base + '/widget/feedback-form.js" data-project-slug="' + projectSlug + '" data-project-key="' + projectKey + '"><\/script>'
+          );
+          lines.push('');
+          lines.push('<!-- Optional: custom API base (if widgets are embedded on a different domain) -->');
+          lines.push('<!-- <script src="' + base + '/widget/lead-form.js" data-api-base="https://YOUR-CRM-HOST" data-project-slug="' + projectSlug + '" data-project-key="' + projectKey + '"><\/script> -->');
+          return lines.join('\n');
+        }
+
+
+        function buildCurlExamples(projectSlug, projectKey) {
+          var base = apiBase;
+          var lines = [];
+          lines.push('# ---- Mini CRM Widgets: public smoke via cURL ----');
+          lines.push('# 1) Set variables');
+          lines.push('BASE="' + base + '"');
+          lines.push('SLUG="' + projectSlug + '"');
+          lines.push('PUBLIC_KEY="' + projectKey + '"');
+          lines.push('ORIGIN="https://your-site.com"   # must be in allowlist');
+          lines.push('');
+          lines.push('# 2) Read widget config (checks allowlist + form enabled)');
+          lines.push('curl -i "$BASE/public/forms/$SLUG/lead/config" \\');
+          lines.push('  -H "X-Project-Key: $PUBLIC_KEY" \\');
+          lines.push('  -H "Origin: $ORIGIN"');
+          lines.push('');
+          lines.push('# 3) Submit Lead');
+          lines.push('REQ_ID="lead-$(date +%s)"');
+          lines.push('curl -i -X POST "$BASE/public/forms/$SLUG/lead" \\');
+          lines.push('  -H "Content-Type: application/json" \\');
+          lines.push('  -H "X-Project-Key: $PUBLIC_KEY" \\');
+          lines.push('  -H "Origin: $ORIGIN" \\');
+          lines.push('  -H "X-Request-Id: $REQ_ID" \\');
+          lines.push('  -d \'{"name":"CLI Lead","phone":"+380501112233","message":"hello from curl"}\'');
+          lines.push('');
+          lines.push('# 4) Idempotency check (should return same caseId)');
+          lines.push('curl -i -X POST "$BASE/public/forms/$SLUG/lead" \\');
+          lines.push('  -H "Content-Type: application/json" \\');
+          lines.push('  -H "X-Project-Key: $PUBLIC_KEY" \\');
+          lines.push('  -H "Origin: $ORIGIN" \\');
+          lines.push('  -H "X-Request-Id: $REQ_ID" \\');
+          lines.push('  -d \'{"name":"CLI Lead","phone":"+380501112233","message":"hello from curl (repeat)"}\'');
+          lines.push('');
+          lines.push('# 5) Negative test: bad origin should be 403 (when allowlist is non-empty)');
+          lines.push('curl -i "$BASE/public/forms/$SLUG/lead/config" \\');
+          lines.push('  -H "X-Project-Key: $PUBLIC_KEY" \\');
+          lines.push('  -H "Origin: https://evil.local"');
+          lines.push('');
+          lines.push('# 6) Feedback example');
+          lines.push('curl -i -X POST "$BASE/public/forms/$SLUG/feedback" \\');
+          lines.push('  -H "Content-Type: application/json" \\');
+          lines.push('  -H "X-Project-Key: $PUBLIC_KEY" \\');
+          lines.push('  -H "Origin: $ORIGIN" \\');
+          lines.push('  -H "X-Request-Id: feedback-$(date +%s)" \\');
+          lines.push('  -d \'{"name":"CLI Test","message":"feedback via curl","rating":5}\'');
+          lines.push('');
+          lines.push('# Tip: if you see 410 Form is disabled -> enable it in Admin -> Integration -> Public forms.');
+          return lines.join('\n');
+        }
+
+        function buildTestWidgetHtml(projectSlug, projectKey) {
+          var base = apiBase;
+          var esc = function (s) { return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); };
+          return (
+            '<!doctype html>\n' +
+            '<html lang="en">\n' +
+            '<head>\n' +
+            '  <meta charset="utf-8"/>\n' +
+            '  <meta name="viewport" content="width=device-width,initial-scale=1"/>\n' +
+            '  <title>Mini CRM Widget Test</title>\n' +
+            '  <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px;background:#f6f7fb;}h1{margin:0 0 12px 0;font-size:20px;}p{margin:0 0 18px 0;color:#555;}section{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:16px;}code{background:#f3f4f6;padding:2px 6px;border-radius:6px;}</style>\n' +
+            '</head>\n' +
+            '<body>\n' +
+            '  <h1>Mini CRM widgets test page</h1>\n' +
+            '  <p>CRM base: <code>' + esc(base) + '</code> · projectSlug: <code>' + esc(projectSlug) + '</code></p>\n' +
+            '  <section><h3 style="margin:0 0 10px 0;">Lead</h3>\n' +
+            '    <script src="' + esc(base) + '/widget/lead-form.js" data-project-slug="' + esc(projectSlug) + '" data-project-key="' + esc(projectKey) + '"><\/script>\n' +
+            '  </section>\n' +
+            '  <section><h3 style="margin:0 0 10px 0;">Donation</h3>\n' +
+            '    <script src="' + esc(base) + '/widget/donation-form.js" data-project-slug="' + esc(projectSlug) + '" data-project-key="' + esc(projectKey) + '"><\/script>\n' +
+            '  </section>\n' +
+            '  <section><h3 style="margin:0 0 10px 0;">Booking</h3>\n' +
+            '    <script src="' + esc(base) + '/widget/booking-form.js" data-project-slug="' + esc(projectSlug) + '" data-project-key="' + esc(projectKey) + '"><\/script>\n' +
+            '  </section>\n' +
+            '  <section><h3 style="margin:0 0 10px 0;">Feedback</h3>\n' +
+            '    <script src="' + esc(base) + '/widget/feedback-form.js" data-project-slug="' + esc(projectSlug) + '" data-project-key="' + esc(projectKey) + '"><\/script>\n' +
+            '  </section>\n' +
+            '  <p style="color:#666;font-size:13px;">Note: if a form is disabled, it will return 410 on submit. Enable it in Admin → Integration → Public forms.</p>\n' +
+            '</body>\n' +
+            '</html>\n'
+          );
+        }
+
+        function renderOriginsTable(origins) {
+          if (!originsTbody) return;
+          if (!Array.isArray(origins) || origins.length === 0) {
+            originsTbody.innerHTML = '<tr><td colspan="3" class="muted">Порожньо</td></tr>';
+            return;
+          }
+          originsTbody.innerHTML = origins
+            .map(function (row) {
+              var created = row.createdAt ? new Date(row.createdAt).toLocaleString() : '';
+              return (
+                '<tr data-origin-id="' + row.id + '">' +
+                  '<td><code>' + escapeHtml(row.origin) + '</code></td>' +
+                  '<td class="muted">' + escapeHtml(created) + '</td>' +
+                  '<td style="text-align:right;"><button type="button" class="btn btn-secondary btn-ghost origin-del" data-id="' + row.id + '">Delete</button></td>' +
+                '</tr>'
+              );
+            })
+            .join('');
+        }
+
+        function loadIntegration() {
+          return authedFetch('/projects/current/integration')
+            .then(function (res) {
+              if (!res.ok) throw new Error('Failed to load integration');
+              return res.json();
+            })
+            .then(function (data) {
+              var p = data && data.project ? data.project : null;
+              if (!p) throw new Error('No project');
+
+              if (integrationProjectLabel) integrationProjectLabel.textContent = p.name + ' (' + p.slug + ')';
+              if (integrationProjectSlugInput) integrationProjectSlugInput.value = p.slug;
+              if (integrationProjectKeyInput) integrationProjectKeyInput.value = p.publicKey;
+              if (integrationSnippetsTextarea) integrationSnippetsTextarea.value = buildWidgetSnippets(p.slug, p.publicKey);
+              if (integrationCurlTextarea) integrationCurlTextarea.value = buildCurlExamples(p.slug, p.publicKey);
+
+              renderOriginsTable(data.allowedOrigins || []);
+              setOriginStatus('', false);
+
+              // Also load forms list for quick enable/disable testing
+              loadIntegrationPublicForms();
+            })
+            .catch(function (err) {
+              console.error('Integration load failed', err);
+              setOriginStatus('Failed to load integration data', true);
+            });
+        }
+
+        if (copyProjectSlugBtn) {
+          copyProjectSlugBtn.addEventListener('click', function () {
+            safeCopy(integrationProjectSlugInput ? integrationProjectSlugInput.value : '');
+          });
+        }
+
+        if (toggleProjectKeyBtn) {
+          toggleProjectKeyBtn.addEventListener('click', function () {
+            if (!integrationProjectKeyInput) return;
+            var isHidden = integrationProjectKeyInput.type === 'password';
+            integrationProjectKeyInput.type = isHidden ? 'text' : 'password';
+            toggleProjectKeyBtn.textContent = isHidden ? 'Hide' : 'Show';
+          });
+        }
+
+        if (copyProjectKeyBtn) {
+          copyProjectKeyBtn.addEventListener('click', function () {
+            safeCopy(integrationProjectKeyInput ? integrationProjectKeyInput.value : '');
+          });
+        }
+
+        if (copySnippetsBtn) {
+          copySnippetsBtn.addEventListener('click', function () {
+            safeCopy(integrationSnippetsTextarea ? integrationSnippetsTextarea.value : '');
+          });
+        }
+
+if (copyCurlBtn) {
+          copyCurlBtn.addEventListener('click', function () {
+            safeCopy(integrationCurlTextarea ? integrationCurlTextarea.value : '');
+          });
+        }
+
+        if (downloadTestHtmlBtn) {
+          downloadTestHtmlBtn.addEventListener('click', function () {
+            var slug = integrationProjectSlugInput ? integrationProjectSlugInput.value : '';
+            var key = integrationProjectKeyInput ? integrationProjectKeyInput.value : '';
+            var htmlText = buildTestWidgetHtml(slug, key);
+
+            try {
+              var blob = new Blob([htmlText], { type: 'text/html;charset=utf-8' });
+              var url = URL.createObjectURL(blob);
+              var a = document.createElement('a');
+              a.href = url;
+              a.download = 'test-widget.html';
+              document.body.appendChild(a);
+              a.click();
+              document.body.removeChild(a);
+              setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 1000);
+            } catch (e) {
+              // Fallback: copy to clipboard
+              safeCopy(htmlText);
+              alert('Cannot download file in this browser. HTML was copied to clipboard instead.');
+            }
+          });
+        }
+
+                if (refreshIntegrationBtn) {
+          refreshIntegrationBtn.addEventListener('click', function () {
+            loadIntegration();
+          });
+        }
+
+        if (originAddBtn) {
+          originAddBtn.addEventListener('click', function () {
+            if (!originInput) return;
+            var value = String(originInput.value || '').trim();
+            if (!value) {
+              setOriginStatus('Origin is empty', true);
+              return;
+            }
+            setOriginStatus('Adding...', false);
+            authedFetch('/projects/current/allowed-origins', {
+              method: 'POST',
+              body: JSON.stringify({ origin: value }),
+            })
+              .then(function (res) {
+                if (!res.ok) {
+                  return res.json().then(function (b) {
+                    throw new Error((b && b.error) || 'Failed');
+                  });
+                }
+                return res.json();
+              })
+              .then(function () {
+                originInput.value = '';
+                setOriginStatus('Added', false);
+                return loadIntegration();
+              })
+              .catch(function (err) {
+                setOriginStatus(String(err.message || err || 'Failed'), true);
+              });
+          });
+        }
+
+        if (originsTbody) {
+          originsTbody.addEventListener('click', function (event) {
+            var target = event.target;
+            if (!target) return;
+            if (!target.classList.contains('origin-del')) return;
+            var id = target.getAttribute('data-id');
+            if (!id) return;
+            setOriginStatus('Deleting...', false);
+            authedFetch('/projects/current/allowed-origins/' + encodeURIComponent(id), {
+              method: 'DELETE',
+            })
+              .then(function (res) {
+                if (!res.ok) {
+                  return res.json().then(function (b) {
+                    throw new Error((b && b.error) || 'Failed');
+                  });
+                }
+                return res.json();
+              })
+              .then(function () {
+                setOriginStatus('Deleted', false);
+                return loadIntegration();
+              })
+              .catch(function (err) {
+                setOriginStatus(String(err.message || err || 'Failed'), true);
+              });
+          });
+        }
+
+        if (integrationRefreshPublicFormsBtn) {
+          integrationRefreshPublicFormsBtn.addEventListener('click', function () {
+            loadIntegrationPublicForms();
+          });
+        }
+
+        if (integrationSeedPublicFormsBtn) {
+          integrationSeedPublicFormsBtn.addEventListener('click', function () {
+            setIntegrationPublicFormsStatus('Seeding...', false);
+            authedFetch('/public-forms/seed', {
+              method: 'POST',
+              body: JSON.stringify({}),
+            })
+              .then(function (res) {
+                if (!res.ok) {
+                  return res.json().then(function (b) {
+                    throw new Error((b && b.error) || 'Failed');
+                  });
+                }
+                return res.json();
+              })
+              .then(function (data) {
+                setIntegrationPublicFormsStatus('Seeded', false);
+                renderIntegrationPublicFormsTable(data);
+              })
+              .catch(function (err) {
+                setIntegrationPublicFormsStatus(String(err.message || err || 'Failed'), true);
+              });
+          });
+        }
+
+        if (integrationPublicFormsTbody) {
+          integrationPublicFormsTbody.addEventListener('click', function (event) {
+            var target = event.target;
+            if (!target) return;
+            if (!target.classList.contains('integration-form-toggle')) return;
+            var id = target.getAttribute('data-id');
+            if (!id) return;
+
+            var row = target.closest('tr');
+            if (!row) return;
+            var active = row.getAttribute('data-form-active') === '1';
+            var next = !active;
+
+            setIntegrationPublicFormsStatus('Saving...', false);
+            authedFetch('/public-forms/' + encodeURIComponent(id), {
+              method: 'PATCH',
+              body: JSON.stringify({ isActive: next }),
+            })
+              .then(function (res) {
+                if (!res.ok) {
+                  return res.json().then(function (b) {
+                    throw new Error((b && b.error) || 'Failed');
+                  });
+                }
+                return res.json();
+              })
+              .then(function () {
+                setIntegrationPublicFormsStatus('Saved', false);
+                return loadIntegrationPublicForms();
+              })
+              .catch(function (err) {
+                setIntegrationPublicFormsStatus(String(err.message || err || 'Failed'), true);
+              });
+          });
+        }
+
         if (txApplyFiltersBtn) {
           txApplyFiltersBtn.addEventListener('click', function () {
             reloadTransactionsWithFilters();
@@ -2517,17 +3464,17 @@ tabs.forEach(function (btn) {
             btn.classList.add('active');
 
             var tab = btn.getAttribute('data-tab');
+            // Hide all views
+            if (casesView) casesView.style.display = 'none';
+            if (contactsView) contactsView.style.display = 'none';
+            if (transactionsView) transactionsView.style.display = 'none';
+            if (integrationView) integrationView.style.display = 'none';
+
             if (tab === 'cases') {
               if (casesView) casesView.style.display = '';
-              if (contactsView) contactsView.style.display = 'none';
-              if (transactionsView) transactionsView.style.display = 'none';
             } else if (tab === 'contacts') {
-              if (casesView) casesView.style.display = 'none';
               if (contactsView) contactsView.style.display = '';
-              if (transactionsView) transactionsView.style.display = 'none';
             } else if (tab === 'transactions') {
-              if (casesView) casesView.style.display = 'none';
-              if (contactsView) contactsView.style.display = 'none';
               if (transactionsView) {
                 transactionsView.style.display = '';
                 try {
@@ -2536,6 +3483,14 @@ tabs.forEach(function (btn) {
               }
               // При переключенні на вкладку "Фінанси" завжди оновлюємо транзакції
               reloadTransactionsWithFilters();
+            } else if (tab === 'integration') {
+              if (integrationView) {
+                integrationView.style.display = '';
+                try {
+                  integrationView.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                } catch (e) {}
+              }
+              loadIntegration();
             }
           });
         });
@@ -2636,15 +3591,17 @@ tabs.forEach(function (btn) {
             })
             .then(function (data) {
               setToken(data.token);
-              setUserInfo(data.user);
+              currentProject = null;
               setStatus('Успішний вхід', false);
               dataCard.style.display = '';
               logoutBtn.style.display = 'inline-flex';
-              loadProjectConfig().finally(function () {
+              refreshProjectHeader(data.user).finally(function () {
+                loadProjectConfig().finally(function () {
                 if (typeof updateTransactionCategoryFilterOptions === 'function') {
                   updateTransactionCategoryFilterOptions();
                 }
                 loadData();
+              });
               });
             })
             .catch(function (err) {
@@ -2667,6 +3624,59 @@ tabs.forEach(function (btn) {
           logoutBtn.style.display = 'none';
           setStatus('Вийшли з системи', false);
         });
+
+
+        if (projectSwitchApplyBtn) {
+          projectSwitchApplyBtn.addEventListener('click', function () {
+            if (!projectSelectEl) return;
+            var pid = projectSelectEl.value;
+            if (!pid) return;
+            selectProject(pid).catch(function (err) {
+              console.error('Project select failed', err);
+              setStatus(err.message || 'Не вдалося перемкнути проєкт', true);
+            });
+          });
+        }
+
+        if (openProjectAccessBtn) {
+          openProjectAccessBtn.addEventListener('click', function () {
+            var token = getToken();
+            if (!token) return;
+            authedFetch('/auth/me')
+              .then(function (res) { if (!res.ok) throw new Error('Not authenticated'); return res.json(); })
+              .then(function (data) {
+                openProjectAccessModal(data.user);
+              })
+              .catch(function (err) {
+                console.error('Failed to open project access', err);
+              });
+          });
+        }
+
+        if (projectAccessClose) {
+          projectAccessClose.addEventListener('click', function () { closeProjectAccessModal(); });
+        }
+        if (projectAccessCancel) {
+          projectAccessCancel.addEventListener('click', function () { closeProjectAccessModal(); });
+        }
+        if (projectAccessModalBackdrop) {
+          projectAccessModalBackdrop.addEventListener('click', function (e) {
+            if (e && e.target === projectAccessModalBackdrop) closeProjectAccessModal();
+          });
+        }
+
+        if (inviteCreateBtn) {
+          inviteCreateBtn.addEventListener('click', function () {
+            createInvite();
+          });
+        }
+
+        if (inviteAcceptBtn) {
+          inviteAcceptBtn.addEventListener('click', function () {
+            acceptInvite();
+          });
+        }
+
 
         // Try to restore existing token
 
@@ -3475,15 +4485,16 @@ caseModalClose.addEventListener('click', function () {
               return res.json();
             })
             .then(function (data) {
-              setUserInfo(data.user);
-              dataCard.style.display = '';
-              logoutBtn.style.display = 'inline-flex';
-              setStatus('Сесія відновлена', false);
-              loadProjectConfig().finally(function () {
+              refreshProjectHeader(data.user).finally(function () {
+                dataCard.style.display = '';
+                logoutBtn.style.display = 'inline-flex';
+                setStatus('Сесія відновлена', false);
+                loadProjectConfig().finally(function () {
                 if (typeof updateTransactionCategoryFilterOptions === 'function') {
                   updateTransactionCategoryFilterOptions();
                 }
                 loadData();
+              });
               });
             })
             .catch(function () {

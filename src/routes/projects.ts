@@ -1,10 +1,31 @@
 import express from 'express';
+import jwt from 'jsonwebtoken';
 import { z, ZodError } from 'zod';
 import prisma from '../db/client';
 import { requireAuth } from '../middleware/auth';
 import { AuthRequest } from '../types/auth';
 
+const JWT_SECRET = process.env.JWT_SECRET || 'dev-mini-crm-secret';
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+
+function signToken(payload: { userId: number; email: string; role: string; projectId: number }) {
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
+}
+
 const router = express.Router();
+
+function requireRole(req: AuthRequest, res: express.Response, roles: Array<'owner' | 'admin' | 'viewer'>) {
+  const user = req.user;
+  if (!user) {
+    res.status(401).json({ error: 'Unauthorized' });
+    return false;
+  }
+  if (!roles.includes(user.role as any)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return false;
+  }
+  return true;
+}
 
 const createProjectSchema = z.object({
   name: z.string().min(1, 'name is required'),
@@ -215,24 +236,74 @@ function normalizeProjectConfig(rawConfig: any) {
   return config;
 }
 
-// GET /projects — list all projects (simple admin/debug endpoint)
-router.get('/', async (_req, res) => {
+// GET /projects — list projects for current user (membership-based)
+router.get('/', requireAuth, async (req: AuthRequest, res) => {
   try {
-    const projects = await prisma.project.findMany({
-      orderBy: { id: 'asc' },
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const memberships = await prisma.membership.findMany({
+      where: { userId: req.user.id },
+      include: { project: true },
+      orderBy: { projectId: 'asc' },
     });
 
-    const result = projects.map((p) => ({
-      id: p.id,
-      name: p.name,
-      slug: p.slug,
-      config: p.config ?? null,
-    }));
-
-    return res.json(result);
+    return res.json(
+      memberships.map((m) => ({
+        projectId: m.projectId,
+        role: m.role,
+        project: {
+          id: m.project.id,
+          name: m.project.name,
+          slug: m.project.slug,
+          publicKey: m.project.publicKey,
+          config: m.project.config ?? null,
+        },
+      }))
+    );
   } catch (error) {
     console.error('Failed to list projects', error);
     return res.status(500).json({ error: 'Failed to list projects' });
+  }
+});
+
+// POST /projects/select — switch active project for the current user (returns a new token)
+router.post('/select', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+    const body = (req.body || {}) as { projectId?: number };
+    const projectId = typeof body.projectId === 'number' ? body.projectId : Number(body.projectId);
+    if (!projectId || Number.isNaN(projectId)) {
+      return res.status(400).json({ error: 'projectId is required' });
+    }
+
+    const membership = await prisma.membership.findFirst({
+      where: { userId: req.user.id, projectId },
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    const token = signToken({
+      userId: req.user.id,
+      email: req.user.email,
+      role: membership.role,
+      projectId,
+    });
+
+    return res.json({
+      token,
+      user: {
+        id: req.user.id,
+        email: req.user.email,
+        role: membership.role,
+        projectId,
+      },
+    });
+  } catch (error) {
+    console.error('Failed to select project', error);
+    return res.status(500).json({ error: 'Failed to select project' });
   }
 });
 
@@ -394,15 +465,32 @@ router.patch('/:slug/config', requireAuth, async (req: AuthRequest, res) => {
 });
 
 // POST /projects — create a new project
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req: AuthRequest, res) => {
   try {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
     const parsed = createProjectSchema.parse(req.body);
+
+    // Generate a stable random publicKey
+    const publicKey = Buffer.from(`${parsed.slug}:${Date.now()}:${Math.random()}`)
+      .toString('hex')
+      .slice(0, 32);
 
     const project = await prisma.project.create({
       data: {
         name: parsed.name,
         slug: parsed.slug,
+        publicKey,
         config: DEFAULT_PROJECT_CONFIG,
+        createdByUserId: req.user.id,
+      },
+    });
+
+    await prisma.membership.create({
+      data: {
+        userId: req.user.id,
+        projectId: project.id,
+        role: 'owner',
       },
     });
 
@@ -410,6 +498,7 @@ router.post('/', async (req, res) => {
       id: project.id,
       name: project.name,
       slug: project.slug,
+      publicKey: project.publicKey,
       config: project.config,
     });
   } catch (error: any) {
@@ -427,6 +516,130 @@ router.post('/', async (req, res) => {
     }
 
     return res.status(500).json({ error: 'Failed to create project' });
+  }
+});
+
+// ------------------------------
+// P2-min: Integration helpers (per-project allowlist)
+// ------------------------------
+
+router.get('/current/integration', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (!requireRole(req, res, ['owner', 'admin', 'viewer'])) return;
+    const user = req.user;
+    if (!user || !user.projectId) {
+      return res.status(403).json({ error: 'Project context is required' });
+    }
+
+    const project = await prisma.project.findUnique({
+      where: { id: user.projectId },
+      select: { id: true, name: true, slug: true, publicKey: true },
+    });
+
+    if (!project) {
+      return res.status(404).json({ error: 'Project not found' });
+    }
+
+    const origins = await prisma.projectAllowedOrigin.findMany({
+      where: { projectId: project.id },
+      select: { id: true, origin: true, createdAt: true },
+      orderBy: { id: 'asc' },
+    });
+
+    return res.json({
+      project,
+      allowedOrigins: origins,
+    });
+  } catch (error) {
+    console.error('Failed to load integration data', error);
+    return res.status(500).json({ error: 'Failed to load integration data' });
+  }
+});
+
+router.get('/current/allowed-origins', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (!requireRole(req, res, ['owner', 'admin', 'viewer'])) return;
+    const user = req.user;
+    if (!user || !user.projectId) {
+      return res.status(403).json({ error: 'Project context is required' });
+    }
+
+    const origins = await prisma.projectAllowedOrigin.findMany({
+      where: { projectId: user.projectId },
+      select: { id: true, origin: true, createdAt: true },
+      orderBy: { id: 'asc' },
+    });
+    return res.json(origins);
+  } catch (error) {
+    console.error('Failed to list allowed origins', error);
+    return res.status(500).json({ error: 'Failed to list allowed origins' });
+  }
+});
+
+router.post('/current/allowed-origins', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (!requireRole(req, res, ['owner', 'admin'])) return;
+    const user = req.user;
+    if (!user || !user.projectId) {
+      return res.status(403).json({ error: 'Project context is required' });
+    }
+
+    const origin = typeof req.body?.origin === 'string' ? req.body.origin.trim() : '';
+    if (!origin) {
+      return res.status(400).json({ error: 'origin is required' });
+    }
+
+    // Enforce strict origin format (must include scheme + hostname)
+    let normalized = origin;
+    try {
+      normalized = new URL(origin).origin;
+    } catch {
+      return res.status(400).json({ error: 'origin must be a valid URL origin (e.g. https://example.com)' });
+    }
+
+    const created = await prisma.projectAllowedOrigin.create({
+      data: {
+        projectId: user.projectId,
+        origin: normalized,
+      },
+      select: { id: true, origin: true, createdAt: true },
+    });
+
+    return res.status(201).json(created);
+  } catch (error: any) {
+    console.error('Failed to add allowed origin', error);
+    if (error?.code === 'P2002') {
+      return res.status(409).json({ error: 'Origin already exists' });
+    }
+    return res.status(500).json({ error: 'Failed to add allowed origin' });
+  }
+});
+
+router.delete('/current/allowed-origins/:id', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (!requireRole(req, res, ['owner', 'admin'])) return;
+    const user = req.user;
+    if (!user || !user.projectId) {
+      return res.status(403).json({ error: 'Project context is required' });
+    }
+
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid origin id' });
+    }
+
+    const deleted = await prisma.projectAllowedOrigin.deleteMany({
+      where: { id, projectId: user.projectId },
+    });
+
+    if (deleted.count === 0) {
+      return res.status(404).json({ error: 'Origin not found' });
+    }
+
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('Failed to delete allowed origin', error);
+    return res.status(500).json({ error: 'Failed to delete allowed origin' });
   }
 });
 
