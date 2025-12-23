@@ -52,16 +52,25 @@ Backend skeleton for the Mini CRM Core project.
 - Run `npm run prisma:generate` after changing `prisma/schema.prisma`.
 - For PostgreSQL, the connection string is taken from `DATABASE_URL` in `.env` via `prisma.config.ts`.
 
-## Auth API (step 3)
+## Auth API
 
-- `POST /auth/register-owner` — create first owner for a project by `projectSlug`.
+Auth is **project-scoped via Membership**: a global `User` can be a member of multiple projects.
+
+- `POST /auth/register` — create a global user account.
+  Body:
+
+  ```json
+  { "email": "user@example.com", "password": "secret123" }
+  ```
+
+- `POST /auth/register-owner` — attach an existing/new user to a project as **owner** by `projectSlug`.
   Body:
 
   ```json
   { "email": "owner@example.com", "password": "secret123", "projectSlug": "demo" }
   ```
 
-- `POST /auth/login` — login with email/password, returns JWT token.
+- `POST /auth/login` — login with email/password, returns JWT token with an active `projectId`.
   Body:
 
   ```json
@@ -72,13 +81,39 @@ Backend skeleton for the Mini CRM Core project.
 
 ## Projects API
 
-- `GET /projects` — list all projects.
-- `POST /projects` — create a project.
+- `GET /projects` — list projects available for the current user.
+- `POST /projects` — create a project (creates `Membership` as `owner`).
 
   Body:
 
   ```json
   { "name": "Demo CRM Project", "slug": "demo" }
+  ```
+
+- `POST /projects/select` — switch active project for the current user (returns new JWT token).
+  Body:
+
+  ```json
+  { "projectId": 1 }
+  ```
+
+## Invites API (P1)
+
+Invites allow an owner/admin to onboard another global user into the current project.
+
+- `POST /invites` — create invite token for the current project.
+  Body:
+
+  ```json
+  { "role": "admin", "expiresInDays": 7 }
+  ```
+
+- `GET /invites` — list active (unused) invite tokens for the current project.
+- `POST /invites/accept` — accept invite token (the caller becomes a member of that project).
+  Body:
+
+  ```json
+  { "token": "..." }
   ```
 
 ## Contacts API (step 4)
@@ -166,9 +201,39 @@ The script will:
 - **Rate limiting** — login & owner registration are limited per IP (15 minutes window), public widgets are limited per IP+project per minute. Env:
   - `PUBLIC_CONFIG_RL_MAX` (default 60/min)
   - `PUBLIC_SUBMIT_RL_MAX` (default 10/min)
-- **CORS** — in production, set environment variable `CORS_ORIGINS` to a comma-separated list of allowed origins (e.g. `https://admin.yoursite.com,https://landing.yoursite.com`). In dev, if `CORS_ORIGINS` is empty, any origin is allowed.
+- **Origin allowlist (recommended)** — manage allowed origins per project via the Admin UI → Integration tab (API: `/projects/current/allowed-origins`). For public endpoints, when the allowlist is non-empty, requests must include `Origin`/`Referer` matching one of the allowed origins; otherwise the API responds with `403`.
 - **Honeypot** — public lead form includes a hidden field. If a bot fills it, the API responds with success but silently ignores the lead. This reduces spam from simple bots.
 - **Idempotency** — public submit endpoints support `X-Request-Id` (recommended). Repeated submissions with the same `X-Request-Id` return the previously created entities.
+
+## Smoke test (bash)
+
+For a quick end-to-end verification of **public integration** (projectKey + origin allowlist + public forms),
+run the built-in smoke test script:
+
+```bash
+bash scripts/smoke.sh
+```
+
+Optional environment overrides:
+
+```bash
+BASE="http://localhost:4000" \
+EMAIL="owner@example.com" \
+PASS="secret123" \
+ORIGIN="https://test.local" \
+bash scripts/smoke.sh
+```
+
+What it checks:
+- `/health` is OK
+- Login works and returns JWT
+- Integration returns `slug` and `publicKey`
+- Allowed origin exists (201 or 409)
+- Public forms are seeded
+- `lead` form is enabled (PATCH `/public-forms/:id`)
+- Public `lead` submit returns `201` and idempotency works via `X-Request-Id`
+- Bad origin is rejected (expects `403` when allowlist is non-empty)
+
 
 ## Cases API
 

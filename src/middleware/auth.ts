@@ -1,10 +1,11 @@
 import { Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import { AuthRequest, AuthUser } from '../types/auth';
+import prisma from '../db/client';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-mini-crm-secret';
 
-export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -21,10 +22,22 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
       projectId: number;
     };
 
+    // Hard isolation: verify membership exists for (userId, projectId)
+    const membership = await prisma.membership.findFirst({
+      where: {
+        userId: payload.userId,
+        projectId: payload.projectId,
+      },
+    });
+
+    if (!membership) {
+      return res.status(403).json({ error: 'Forbidden (no project access)' });
+    }
+
     const user: AuthUser = {
       id: payload.userId,
       email: payload.email,
-      role: payload.role,
+      role: membership.role,
       projectId: payload.projectId,
     };
 

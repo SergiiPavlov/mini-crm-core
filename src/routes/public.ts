@@ -73,6 +73,45 @@ async function requirePublicProject(
     return null;
   }
 
+  // Per-project Origin/Referer allowlist (defense-in-depth).
+  // Note: CORS is already enforced in src/index.ts, but requests without Origin (curl/proxy) bypass CORS.
+  const allowlist = await prisma.projectAllowedOrigin.findMany({
+    where: { projectId: project.id },
+    select: { origin: true },
+  });
+
+  if (allowlist.length > 0) {
+    const origin = getHeader(req, 'Origin');
+    const referer = getHeader(req, 'Referer');
+
+    const allowed = allowlist.map((r) => r.origin);
+
+    let refOrigin: string | undefined;
+    if (referer) {
+      try {
+        refOrigin = new URL(referer).origin;
+      } catch {
+        refOrigin = undefined;
+      }
+    }
+
+    const match = (origin && allowed.includes(origin)) || (refOrigin && allowed.includes(refOrigin));
+
+    // If both headers are missing, allow GET (dev / server-to-server) but require explicit opt-in for POST.
+    if (!origin && !refOrigin) {
+      const allowNoOrigin = process.env.PUBLIC_ALLOW_NO_ORIGIN === '1';
+      if (req.method === 'GET' || allowNoOrigin) {
+        // ok
+      } else {
+        res.status(403).json({ error: 'Origin is required for this project (allowlist enabled)' });
+        return null;
+      }
+    } else if (!match) {
+      res.status(403).json({ error: 'Origin/Referer not allowed for this project' });
+      return null;
+    }
+  }
+
   return project;
 }
 

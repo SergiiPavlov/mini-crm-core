@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Mini CRM Widget Test</title>
+  <style>body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px;background:#f6f7fb;}h1{margin:0 0 12px 0;font-size:20px;}p{margin:0 0 18px 0;color:#555;}section{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:16px;}code{background:#f3f4f6;padding:2px 6px;border-radius:6px;}</style>
+</head>
+<body>
+  <h1>Mini CRM widgets test page</h1>
+  <p>CRM base: <code>http://localhost:4000</code> · projectSlug: <code>demo</code></p>
+  <section><h3 style="margin:0 0 10px 0;">Lead</h3>
+    <script src="http://localhost:4000/widget/lead-form.js" data-project-slug="demo" data-project-key="68bf4fd8d0a0b91a066634d9dabd8cd3"></script>
+  </section>
+  <section><h3 style="margin:0 0 10px 0;">Donation</h3>
+    <script src="http://localhost:4000/widget/donation-form.js" data-project-slug="demo" data-project-key="68bf4fd8d0a0b91a066634d9dabd8cd3"></script>
+  </section>
+  <section><h3 style="margin:0 0 10px 0;">Booking</h3>
+    <script src="http://localhost:4000/widget/booking-form.js" data-project-slug="demo" data-project-key="68bf4fd8d0a0b91a066634d9dabd8cd3"></script>
+  </section>
+  <section><h3 style="margin:0 0 10px 0;">Feedback</h3>
+    <script src="http://localhost:4000/widget/feedback-form.js" data-project-slug="demo" data-project-key="68bf4fd8d0a0b91a066634d9dabd8cd3"></script>
+  </section>
+  <p style="color:#666;font-size:13px;">Note: if a form is disabled, it will return 410 on submit. Enable it in Admin → Integration → Public forms.</p>
+</body>
+</html>
