@@ -607,10 +607,11 @@ router.post('/current/allowed-origins', requireAuth, async (req: AuthRequest, re
 
     return res.status(201).json(created);
   } catch (error: any) {
-    console.error('Failed to add allowed origin', error);
     if (error?.code === 'P2002') {
+      // Idempotency: origin already in allowlist is not an error.
       return res.status(409).json({ error: 'Origin already exists' });
     }
+    console.error('Failed to add allowed origin', error);
     return res.status(500).json({ error: 'Failed to add allowed origin' });
   }
 });
