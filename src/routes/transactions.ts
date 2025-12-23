@@ -54,6 +54,7 @@ const listTransactionsQuerySchema = z.object({
   dateTo: z.string().optional(),
   minAmount: z.string().optional(),
   maxAmount: z.string().optional(),
+  caseId: z.string().optional(),
 });
 
 type TransactionCategoryType = 'income' | 'expense';
@@ -94,20 +95,20 @@ async function getProjectTransactionCategoryTypeMap(projectId: number): Promise<
 /**
  * Decide whether a transaction is effectively income or expense.
  * Priority:
- *   1) category type from project config (if category is known),
- *   2) transaction.type field as a fallback.
+ *   1) transaction.type field (source of truth when explicitly set),
+ *   2) category type from project config (fallback when tx.type is missing/legacy).
  */
 function getEffectiveTransactionType(
   tx: { type: string | null; category: string | null },
   categoryTypeMap: TransactionTypeMap
 ): TransactionCategoryType | null {
+  if (tx.type === 'income' || tx.type === 'expense') {
+    return tx.type;
+  }
+
   const categoryCode = tx.category ?? undefined;
   if (categoryCode && categoryTypeMap[categoryCode]) {
     return categoryTypeMap[categoryCode];
-  }
-
-  if (tx.type === 'income' || tx.type === 'expense') {
-    return tx.type;
   }
 
   return null;
@@ -157,6 +158,14 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
         happenedAt.lte = dTo;
       }
       where.happenedAt = happenedAt;
+    }
+
+    if (query.caseId) {
+      const cid = Number(query.caseId);
+      if (Number.isNaN(cid)) {
+        return res.status(400).json({ error: 'Invalid caseId' });
+      }
+      where.caseId = cid;
     }
 
     if (query.minAmount || query.maxAmount) {

@@ -1,18 +1,90 @@
 import express from 'express';
 import { z, ZodError } from 'zod';
+import rateLimit from 'express-rate-limit';
 import prisma from '../db/client';
 import { sendNotificationMail } from '../services/mailer';
 
 const router = express.Router();
 
+// ---------- Public rate limiting (platform safety) ----------
+// Defaults:
+// - GET config: 60/min per project+IP
+// - POST submit: 10/min per project+IP
+const publicConfigLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.PUBLIC_CONFIG_RL_MAX || 60),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator(req) {
+    const projectSlug = String((req as any).params?.projectSlug || 'unknown');
+    return `${projectSlug}:${req.ip}:config`;
+  },
+});
+
+const publicSubmitLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: Number(process.env.PUBLIC_SUBMIT_RL_MAX || 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator(req) {
+    const projectSlug = String((req as any).params?.projectSlug || 'unknown');
+    return `${projectSlug}:${req.ip}:submit`;
+  },
+});
+
+function getHeader(req: any, name: string): string | undefined {
+  const v = req.header(name);
+  return v ? String(v).trim() : undefined;
+}
+
+function normalizePhone(raw?: string) {
+  if (!raw) return undefined;
+  const v = String(raw).trim();
+  if (!v) return undefined;
+  // keep digits and leading plus
+  const cleaned = v.replace(/(?!^\+)\D+/g, '');
+  return cleaned.length ? cleaned : undefined;
+}
+
+function normalizeText(raw?: string) {
+  if (raw == null) return undefined;
+  const v = String(raw).trim();
+  return v ? v : undefined;
+}
+
+async function requirePublicProject(
+  req: any,
+  res: any,
+  projectSlug: string
+): Promise<{ id: number; publicKey: string } | null> {
+  const projectKey = getHeader(req, 'X-Project-Key');
+  const project = await prisma.project.findUnique({
+    where: { slug: projectSlug },
+    select: { id: true, publicKey: true },
+  });
+
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return null;
+  }
+
+  if (!projectKey || projectKey !== project.publicKey) {
+    res.status(403).json({ error: 'Invalid project key' });
+    return null;
+  }
+
+  return project;
+}
+
+
 // Basic lead form (general contact/lead)
 const publicLeadSchema = z
   .object({
-    name: z.string().max(255).optional(),
-    email: z.string().email().max(255).optional(),
-    phone: z.string().max(50).optional(),
-    message: z.string().max(2000).optional(),
-    source: z.string().max(100).optional(),
+    name: z.string().trim().max(100).optional(),
+    email: z.string().trim().email().max(255).optional(),
+    phone: z.string().trim().max(30).optional(),
+    message: z.string().trim().max(2000).optional(),
+    source: z.string().trim().max(100).optional(),
     __hp: z.string().optional(),
   })
   .refine(
@@ -26,12 +98,16 @@ const publicLeadSchema = z
 // Donation form
 const publicDonationSchema = z
   .object({
-    name: z.string().max(255).optional(),
-    email: z.string().email().max(255).optional(),
-    phone: z.string().max(50).optional(),
-    amount: z.coerce.number().positive('amount must be greater than 0'),
-    message: z.string().max(2000).optional(),
-    source: z.string().max(100).optional(),
+    name: z.string().trim().max(100).optional(),
+    email: z.string().trim().email().max(255).optional(),
+    phone: z.string().trim().max(30).optional(),
+    amount: z
+      .coerce
+      .number()
+      .positive('amount must be greater than 0')
+      .max(1_000_000, 'amount is too large'),
+    message: z.string().trim().max(2000).optional(),
+    source: z.string().trim().max(100).optional(),
     __hp: z.string().optional(),
   })
   .refine(
@@ -45,14 +121,14 @@ const publicDonationSchema = z
 // Booking form – для бронювань / записів (консультація, зустріч, послуга)
 const publicBookingSchema = z
   .object({
-    name: z.string().max(255).optional(),
-    email: z.string().email().max(255).optional(),
-    phone: z.string().max(50).optional(),
-    service: z.string().max(255).optional(),
-    date: z.string().max(50).optional(),
-    time: z.string().max(50).optional(),
-    message: z.string().max(2000).optional(),
-    source: z.string().max(100).optional(),
+    name: z.string().trim().max(100).optional(),
+    email: z.string().trim().email().max(255).optional(),
+    phone: z.string().trim().max(30).optional(),
+    service: z.string().trim().max(120).optional(),
+    date: z.string().trim().max(50).optional(),
+    time: z.string().trim().max(50).optional(),
+    message: z.string().trim().max(2000).optional(),
+    source: z.string().trim().max(100).optional(),
     __hp: z.string().optional(),
   })
   .refine(
@@ -66,12 +142,12 @@ const publicBookingSchema = z
 // Feedback form – відгуки / звернення без грошей
 const publicFeedbackSchema = z
   .object({
-    name: z.string().max(255).optional(),
-    email: z.string().email().max(255).optional(),
-    phone: z.string().max(50).optional(),
-    message: z.string().max(4000),
+    name: z.string().trim().max(100).optional(),
+    email: z.string().trim().email().max(255).optional(),
+    phone: z.string().trim().max(30).optional(),
+    message: z.string().trim().max(2000),
     rating: z.coerce.number().min(1).max(5).optional(),
-    source: z.string().max(100).optional(),
+    source: z.string().trim().max(100).optional(),
     __hp: z.string().optional(),
   })
   .refine(
@@ -153,10 +229,88 @@ function pickProjectTransactionCategory(
   return txCategories[0];
 }
 
-// Unified handler for public forms
-router.post('/forms/:projectSlug/:formKey', async (req, res) => {
+
+// Public form config for widgets (title + active flag)
+router.get('/forms/:projectSlug/:formKey/config', publicConfigLimiter, async (req, res) => {
   try {
     const { projectSlug, formKey } = req.params;
+
+    const project = await requirePublicProject(req, res, projectSlug);
+
+    if (!project) {
+      return;
+    }
+
+    const publicForm = await prisma.publicForm.findFirst({
+      where: {
+        projectId: project.id,
+        formKey,
+      },
+      select: { formKey: true, title: true, isActive: true },
+    });
+
+    if (!publicForm) {
+      // Treat missing form as inactive (seed required)
+      return res.status(404).json({ error: 'Form not found' });
+    }
+
+    return res.json({
+      formKey: publicForm.formKey,
+      title: publicForm.title,
+      isActive: publicForm.isActive,
+    });
+  } catch (e) {
+    console.error('[public] config error', e);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Unified handler for public forms
+router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res) => {
+  try {
+    const { projectSlug, formKey } = req.params;
+
+    // ---- Public access guard (multi-site / multi-project) ----
+    // Require valid X-Project-Key for any public form submit.
+    const projectGuard = await requirePublicProject(req, res, projectSlug);
+    if (!projectGuard) return;
+
+    // ---- Idempotency ----
+    // Widgets/sites can safely retry the same request (double-click, network retry)
+    // by providing X-Request-Id (preferred) or X-Client-Request-Id.
+    const clientRequestId =
+      getHeader(req, 'X-Request-Id') ||
+      getHeader(req, 'X-Client-Request-Id') ||
+      (typeof (req.body as any)?.clientRequestId === 'string'
+        ? String((req.body as any).clientRequestId).trim()
+        : undefined);
+
+    const normalizedClientRequestId = clientRequestId && clientRequestId.length <= 128
+      ? clientRequestId
+      : undefined;
+
+    if (normalizedClientRequestId) {
+      const existingCase = await prisma.case.findFirst({
+        where: { projectId: projectGuard.id, clientRequestId: normalizedClientRequestId },
+        include: { contact: true },
+      });
+
+      if (existingCase) {
+        let tx: any = null;
+        if (formKey === 'donation') {
+          tx = await prisma.transaction.findFirst({
+            where: { projectId: projectGuard.id, caseId: existingCase.id },
+            orderBy: { id: 'desc' },
+          });
+        }
+        return res.status(200).json({
+          contact: existingCase.contact,
+          case: existingCase,
+          transaction: tx,
+          idempotent: true,
+        });
+      }
+    }
 
     // ----- LEAD -----
     if (formKey === 'lead') {
@@ -167,10 +321,14 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         return res.status(202).json({ received: true });
       }
 
-      const { name, email, phone, message, source } = parsed;
+      const name = normalizeText(parsed.name);
+      const email = normalizeText(parsed.email);
+      const phone = normalizePhone(parsed.phone);
+      const message = normalizeText(parsed.message);
+      const source = normalizeText(parsed.source);
 
       const project = await prisma.project.findUnique({
-        where: { slug: projectSlug },
+        where: { id: projectGuard.id },
       });
 
       if (!project) {
@@ -184,6 +342,46 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
           isActive: true,
         },
       });
+
+      
+      if (!publicForm) {
+        return res.status(410).json({ error: 'Form is disabled' });
+      }
+
+      if (normalizedClientRequestId) {
+        const existing = await prisma.case.findFirst({
+          where: {
+            projectId: project.id,
+            clientRequestId: normalizedClientRequestId,
+          },
+          include: { contact: true },
+        });
+
+        if (existing) {
+          return res.status(200).json({
+            contact: existing.contact,
+            case: existing,
+          });
+        }
+      }
+
+      // Idempotency: return previously created entities for the same clientRequestId
+      if (normalizedClientRequestId) {
+        const existing = await prisma.case.findFirst({
+          where: {
+            projectId: project.id,
+            clientRequestId: normalizedClientRequestId,
+          },
+          include: { contact: true },
+        });
+
+        if (existing) {
+          return res.status(200).json({
+            contact: existing.contact,
+            case: existing,
+          });
+        }
+      }
 
       const contact = await prisma.contact.create({
         data: {
@@ -202,6 +400,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
             projectId: project.id,
             contactId: contact.id,
             publicFormId: publicForm ? publicForm.id : null,
+            clientRequestId: normalizedClientRequestId || null,
             title: 'Новий лід з сайту',
             description: message || null,
             status: 'new',
@@ -250,10 +449,15 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         return res.status(202).json({ received: true });
       }
 
-      const { name, email, phone, amount, message, source } = parsed;
+      const name = normalizeText(parsed.name);
+      const email = normalizeText(parsed.email);
+      const phone = normalizePhone(parsed.phone);
+      const amount = parsed.amount;
+      const message = normalizeText(parsed.message);
+      const source = normalizeText(parsed.source);
 
       const project = await prisma.project.findUnique({
-        where: { slug: projectSlug },
+        where: { id: projectGuard.id },
       });
 
       if (!project) {
@@ -267,6 +471,39 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
           isActive: true,
         },
       });
+
+      
+      if (!publicForm) {
+        return res.status(410).json({ error: 'Form is disabled' });
+      }
+
+      // Idempotency: if the same request was already processed, return the existing case/transaction
+      if (normalizedClientRequestId) {
+        const existingCase = await prisma.case.findFirst({
+          where: {
+            projectId: project.id,
+            clientRequestId: normalizedClientRequestId,
+          },
+          include: { contact: true },
+        });
+
+        if (existingCase) {
+          const existingTx = await prisma.transaction.findFirst({
+            where: {
+              projectId: project.id,
+              caseId: existingCase.id,
+              publicFormId: publicForm.id,
+            },
+            orderBy: { id: 'desc' },
+          });
+
+          return res.status(200).json({
+            contact: existingCase.contact,
+            case: existingCase,
+            transaction: existingTx,
+          });
+        }
+      }
 
       let contact: any = null;
 
@@ -303,6 +540,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
             projectId: project.id,
             contactId: contact.id,
             publicFormId: publicForm ? publicForm.id : null,
+            clientRequestId: normalizedClientRequestId || null,
             title: 'Нове пожертвування з сайту',
             description: donationDescription || null,
             status: 'new',
@@ -374,10 +612,17 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         return res.status(202).json({ received: true });
       }
 
-      const { name, email, phone, service, date, time, message, source } = parsed;
+      const name = normalizeText(parsed.name);
+      const email = normalizeText(parsed.email);
+      const phone = normalizePhone(parsed.phone);
+      const service = normalizeText(parsed.service);
+      const date = normalizeText(parsed.date);
+      const time = normalizeText(parsed.time);
+      const message = normalizeText(parsed.message);
+      const source = normalizeText(parsed.source);
 
       const project = await prisma.project.findUnique({
-        where: { slug: projectSlug },
+        where: { id: projectGuard.id },
       });
 
       if (!project) {
@@ -392,6 +637,27 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         },
       });
 
+      
+      if (!publicForm) {
+        return res.status(410).json({ error: 'Form is disabled' });
+      }
+
+      if (normalizedClientRequestId) {
+        const existing = await prisma.case.findFirst({
+          where: {
+            projectId: project.id,
+            clientRequestId: normalizedClientRequestId,
+          },
+          include: { contact: true },
+        });
+
+        if (existing) {
+          return res.status(200).json({
+            contact: existing.contact,
+            case: existing,
+          });
+        }
+      }
       let contact: any = null;
 
       if (email) {
@@ -429,6 +695,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
           projectId: project.id,
           contactId: contact.id,
           publicFormId: publicForm ? publicForm.id : null,
+          clientRequestId: normalizedClientRequestId || null,
           title: 'Нове бронювання з сайту',
           status: 'new',
           source: source || 'booking-widget',
@@ -479,10 +746,15 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         return res.status(202).json({ received: true });
       }
 
-      const { name, email, phone, message, rating, source } = parsed;
+      const name = normalizeText(parsed.name);
+      const email = normalizeText(parsed.email);
+      const phone = normalizePhone(parsed.phone);
+      const message = normalizeText(parsed.message);
+      const source = normalizeText(parsed.source);
+      const rating = typeof parsed.rating === 'number' ? parsed.rating : undefined;
 
       const project = await prisma.project.findUnique({
-        where: { slug: projectSlug },
+        where: { id: projectGuard.id },
       });
 
       if (!project) {
@@ -497,7 +769,11 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
         },
       });
 
-      let contact: any = null;
+      
+      if (!publicForm) {
+        return res.status(410).json({ error: 'Form is disabled' });
+      }
+let contact: any = null;
 
       if (email) {
         contact = await prisma.contact.findFirst({
@@ -534,6 +810,7 @@ router.post('/forms/:projectSlug/:formKey', async (req, res) => {
           projectId: project.id,
           contactId: contact.id,
           publicFormId: publicForm ? publicForm.id : null,
+          clientRequestId: normalizedClientRequestId || null,
           title: 'Новий відгук з сайту',
           status: 'new',
           source: source || 'feedback-widget',
