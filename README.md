@@ -1,5 +1,11 @@
 # Mini CRM Core
 
+## Environment
+
+- Copy `.env.example` to `.env` and fill values.
+- Start: `npm run dev`
+- Smoke: `npm run smoke` (supports `BASE`, `SMOKE_ORIGIN`, and test flags).
+
 Backend skeleton for the Mini CRM Core project.
 
 ## What is set up so far
@@ -494,3 +500,19 @@ Each project has a `config.notifications` object:
 ```
 
 Currently the notifications config is not editable from the admin UI and can be updated via `/projects/current/config` or directly in the database.
+
+---
+
+## Deployment quick start (minimal)
+1) Copy `.env.example` → `.env` and set production values (DATABASE_URL, JWT_SECRET, CORS_ORIGINS).
+2) Start server on your host.
+3) Run smoke against deploy:
+```bash
+BASE=https://YOUR_CRM_BASE SMOKE_ORIGIN=https://your-site.com npm run smoke
+```
+See `docs/integration.md` for the shortest embed + public config flow.
+
+
+## Deploy (Render)
+
+See `docs/deploy-render.md`.

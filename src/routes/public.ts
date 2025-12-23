@@ -52,6 +52,11 @@ function normalizeText(raw?: string) {
   return v ? v : undefined;
 }
 
+function isPrismaUniqueConstraintError(err: any): boolean {
+  return Boolean(err && typeof err === 'object' && (err as any).code === 'P2002');
+}
+
+
 async function requirePublicProject(
   req: any,
   res: any,
@@ -328,6 +333,12 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       ? clientRequestId
       : undefined;
 
+    // Smoke runs should not send external notifications (avoids SMTP/Mailtrap throttling).
+    const isSmokeRequest =
+      getHeader(req, 'X-Smoke-Test') === '1' ||
+      getHeader(req, 'X-Smoke-Test') === 'true' ||
+      getHeader(req, 'X-Smoke') === '1';
+
     if (normalizedClientRequestId) {
       const existingCase = await prisma.case.findFirst({
         where: { projectId: projectGuard.id, clientRequestId: normalizedClientRequestId },
@@ -432,10 +443,10 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         },
       });
 
-      let leadCase: any = null;
-      try {
-        leadCase = await prisma.case.create({
-          data: {
+	      let leadCase: any = null;
+	      try {
+	        leadCase = await prisma.case.create({
+	          data: {
             projectId: project.id,
             contactId: contact.id,
             publicFormId: publicForm ? publicForm.id : null,
@@ -445,13 +456,29 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
             status: 'new',
             source: source || 'widget',
           },
-        });
-      } catch (caseError) {
+	        });
+      } catch (caseError: any) {
+        if (normalizedClientRequestId && isPrismaUniqueConstraintError(caseError)) {
+          const existing = await prisma.case.findFirst({
+            where: { projectId: project.id, clientRequestId: normalizedClientRequestId },
+            include: { contact: true },
+          });
+
+          if (existing) {
+            return res.status(200).json({
+              contact: existing.contact,
+              case: existing,
+              idempotent: true,
+            });
+          }
+        }
+
         console.error('Error creating case for lead', caseError);
+        return res.status(500).json({ error: 'Failed to create case' });
       }
 
       const notifCfg = getNotificationConfig(project);
-      if (notifCfg.notifyOnLead && notifCfg.emails.length) {
+      if (!isSmokeRequest && notifCfg.notifyOnLead && notifCfg.emails.length) {
         const subject = `Новий лід з сайту — ${project.name}`;
         const lines: string[] = [];
         if (name) lines.push(`Ім'я: ${name}`);
@@ -572,24 +599,6 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       if (message) donationDetailsParts.push(`Коментар: ${message}`);
       const donationDescription = donationDetailsParts.join(' | ');
 
-      let donationCase: any = null;
-      try {
-        donationCase = await prisma.case.create({
-          data: {
-            projectId: project.id,
-            contactId: contact.id,
-            publicFormId: publicForm ? publicForm.id : null,
-            clientRequestId: normalizedClientRequestId || null,
-            title: 'Нове пожертвування з сайту',
-            description: donationDescription || null,
-            status: 'new',
-            source: source || 'donation-widget',
-          },
-        });
-      } catch (caseError) {
-        console.error('Error creating case for donation', caseError);
-      }
-
       const txCategories = getTransactionCategoriesConfig(project);
       const donationCategory =
         (Array.isArray(txCategories)
@@ -597,22 +606,78 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
             txCategories.find((cat) => cat.type === 'income')
           : null);
 
-      const transaction = await prisma.transaction.create({
-        data: {
-          projectId: project.id,
-          contactId: contact.id,
-          caseId: donationCase ? donationCase.id : null,
-          publicFormId: publicForm ? publicForm.id : null,
-          type: 'income',
-          amount,
-          currency: 'UAH',
-          category: donationCategory ? donationCategory.code : 'donation',
-          description: message || null,
-        },
-      });
+      let donationCase: any = null;
+      let transaction: any = null;
+
+      try {
+        const created = await prisma.$transaction(async (tx) => {
+          const c = await tx.case.create({
+            data: {
+              projectId: project.id,
+              contactId: contact.id,
+              publicFormId: publicForm ? publicForm.id : null,
+              clientRequestId: normalizedClientRequestId || null,
+              title: 'Нове пожертвування з сайту',
+              description: donationDescription || null,
+              status: 'new',
+              source: source || 'donation-widget',
+            },
+          });
+
+          const t = await tx.transaction.create({
+            data: {
+              projectId: project.id,
+              contactId: contact.id,
+              caseId: c.id,
+              publicFormId: publicForm ? publicForm.id : null,
+              type: 'income',
+              amount,
+              currency: 'UAH',
+              category: donationCategory ? donationCategory.code : 'donation',
+              description: message || null,
+            },
+          });
+
+          return { c, t };
+        });
+
+        donationCase = created.c;
+        transaction = created.t;
+      } catch (err: any) {
+        if (normalizedClientRequestId && isPrismaUniqueConstraintError(err)) {
+          const existingCase = await prisma.case.findFirst({
+            where: {
+              projectId: project.id,
+              clientRequestId: normalizedClientRequestId,
+            },
+            include: { contact: true },
+          });
+
+          if (existingCase) {
+            const existingTx = await prisma.transaction.findFirst({
+              where: {
+                projectId: project.id,
+                caseId: existingCase.id,
+                publicFormId: publicForm ? publicForm.id : null,
+              },
+              orderBy: { id: 'desc' },
+            });
+
+            return res.status(200).json({
+              contact: existingCase.contact,
+              case: existingCase,
+              transaction: existingTx,
+              idempotent: true,
+            });
+          }
+        }
+
+        console.error('Error creating donation case/transaction', err);
+        return res.status(500).json({ error: 'Failed to process donation' });
+      }
 
       const notifCfg = getNotificationConfig(project);
-      if (notifCfg.notifyOnDonation && notifCfg.emails.length) {
+      if (!isSmokeRequest && notifCfg.notifyOnDonation && notifCfg.emails.length) {
         const subject = `Нове пожертвування — ${project.name}`;
         const lines: string[] = [];
         if (name) lines.push(`Ім'я: ${name}`);
@@ -729,21 +794,41 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       if (message) detailsParts.push(`Коментар: ${message}`);
       const details = detailsParts.join(' | ');
 
-      const bookingCase = await prisma.case.create({
-        data: {
-          projectId: project.id,
-          contactId: contact.id,
-          publicFormId: publicForm ? publicForm.id : null,
-          clientRequestId: normalizedClientRequestId || null,
-          title: 'Нове бронювання з сайту',
-          status: 'new',
-          source: source || 'booking-widget',
-          description: details || null,
-        },
-      });
+      let bookingCase: any = null;
+      try {
+        bookingCase = await prisma.case.create({
+          data: {
+            projectId: project.id,
+            contactId: contact.id,
+            publicFormId: publicForm ? publicForm.id : null,
+            clientRequestId: normalizedClientRequestId || null,
+            title: 'Нове бронювання з сайту',
+            status: 'new',
+            source: source || 'booking-widget',
+            description: details || null,
+          },
+        });
+      } catch (caseError: any) {
+        if (normalizedClientRequestId && isPrismaUniqueConstraintError(caseError)) {
+          const existing = await prisma.case.findFirst({
+            where: { projectId: project.id, clientRequestId: normalizedClientRequestId },
+            include: { contact: true },
+          });
+
+          if (existing) {
+            return res.status(200).json({
+              contact: existing.contact,
+              case: existing,
+              idempotent: true,
+            });
+          }
+        }
+        console.error('Error creating case for booking', caseError);
+        return res.status(500).json({ error: 'Failed to create case' });
+      }
 
       const notifCfg = getNotificationConfig(project);
-      if (notifCfg.notifyOnBooking && notifCfg.emails.length) {
+      if (!isSmokeRequest && notifCfg.notifyOnBooking && notifCfg.emails.length) {
         const subject = `Нове бронювання — ${project.name}`;
         const lines: string[] = [];
         if (name) lines.push(`Ім'я: ${name}`);
@@ -844,21 +929,41 @@ let contact: any = null;
       }
       const description = detailParts.join(' | ');
 
-      const feedbackCase = await prisma.case.create({
-        data: {
-          projectId: project.id,
-          contactId: contact.id,
-          publicFormId: publicForm ? publicForm.id : null,
-          clientRequestId: normalizedClientRequestId || null,
-          title: 'Новий відгук з сайту',
-          status: 'new',
-          source: source || 'feedback-widget',
-          description: description || null,
-        },
-      });
+      let feedbackCase: any = null;
+      try {
+        feedbackCase = await prisma.case.create({
+          data: {
+            projectId: project.id,
+            contactId: contact.id,
+            publicFormId: publicForm ? publicForm.id : null,
+            clientRequestId: normalizedClientRequestId || null,
+            title: 'Новий відгук з сайту',
+            status: 'new',
+            source: source || 'feedback-widget',
+            description: description || null,
+          },
+        });
+      } catch (caseError: any) {
+        if (normalizedClientRequestId && isPrismaUniqueConstraintError(caseError)) {
+          const existing = await prisma.case.findFirst({
+            where: { projectId: project.id, clientRequestId: normalizedClientRequestId },
+            include: { contact: true },
+          });
+
+          if (existing) {
+            return res.status(200).json({
+              contact: existing.contact,
+              case: existing,
+              idempotent: true,
+            });
+          }
+        }
+        console.error('Error creating case for feedback', caseError);
+        return res.status(500).json({ error: 'Failed to create case' });
+      }
 
       const notifCfg = getNotificationConfig(project);
-      if (notifCfg.notifyOnFeedback && notifCfg.emails.length) {
+      if (!isSmokeRequest && notifCfg.notifyOnFeedback && notifCfg.emails.length) {
         const subject = `Новий відгук — ${project.name}`;
         const lines: string[] = [];
         if (name) lines.push(`Ім'я: ${name}`);
@@ -891,15 +996,19 @@ let contact: any = null;
 
     return res.status(404).json({ error: 'Unknown public form' });
   } catch (error: any) {
-    console.error('Error handling public form', error);
-
     if (error instanceof ZodError) {
+      // Validation errors are expected in normal operation (and in smoke validation tests).
+      // Keep logs clean: no stacktrace.
+      if (process.env.LOG_PUBLIC_VALIDATION === '1') {
+        console.warn('Public form validation error:', error.errors);
+      }
       return res.status(400).json({
         error: 'Validation error',
         details: error.errors,
       });
     }
 
+    console.error('Error handling public form', error);
     return res.status(500).json({ error: 'Failed to submit public form' });
   }
 });
