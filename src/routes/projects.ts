@@ -5,7 +5,7 @@ import prisma from '../db/client';
 import { requireAuth } from '../middleware/auth';
 import { AuthRequest } from '../types/auth';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-mini-crm-secret';
+const JWT_SECRET = process.env.JWT_SECRET as string;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 function signToken(payload: { userId: number; email: string; role: string; projectId: number }) {
