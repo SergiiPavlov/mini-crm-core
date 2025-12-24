@@ -1,6 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import type { SignOptions } from 'jsonwebtoken';
 import crypto from 'crypto';
 import { z, ZodError } from 'zod';
 import prisma from '../db/client';
@@ -9,8 +10,8 @@ import { AuthRequest } from '../types/auth';
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET as string;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
+const JWT_SECRET = (process.env.JWT_SECRET || 'dev-mini-crm-secret') as jwt.Secret;
+const JWT_EXPIRES_IN: SignOptions['expiresIn'] = (process.env.JWT_EXPIRES_IN as SignOptions['expiresIn']) || '7d';
 
 function signToken(payload: { userId: number; email: string; role: string; projectId: number }) {
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });

@@ -442,8 +442,10 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res) => {
     if (caseId !== undefined) {
       const foundCase = await prisma.case.findUnique({
         where: {
-          id: caseId,
-          projectId,
+          id_projectId: {
+            id: caseId,
+            projectId,
+          },
         },
       });
 
@@ -462,9 +464,11 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res) => {
       happenedAt = d;
     }
 
-    const updated = await prisma.transaction.update({
+    // Prevent cross-project modifications (IDOR): mutate only within the current project.
+    const upd = await prisma.transaction.updateMany({
       where: {
         id,
+        projectId,
       },
       data: {
         type: data.type,
@@ -475,6 +479,17 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res) => {
         contactId: contactId ?? undefined,
         caseId: caseId ?? undefined,
         happenedAt: happenedAt ?? undefined,
+      },
+    });
+
+    if (upd.count === 0) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
+
+    const updated = await prisma.transaction.findFirst({
+      where: {
+        id,
+        projectId,
       },
       include: {
         contact: true,
@@ -491,10 +506,6 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res) => {
         error: 'Validation error',
         details: error.errors,
       });
-    }
-
-    if (error.code === 'P2025') {
-      return res.status(404).json({ error: 'Transaction not found' });
     }
 
     return res.status(500).json({ error: 'Failed to update transaction' });
@@ -515,19 +526,21 @@ router.delete('/:id', requireAuth, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Invalid transaction id' });
     }
 
-    await prisma.transaction.delete({
+    // Prevent cross-project deletions (IDOR): delete only within the current project.
+    const del = await prisma.transaction.deleteMany({
       where: {
         id,
+        projectId,
       },
     });
+
+    if (del.count === 0) {
+      return res.status(404).json({ error: 'Transaction not found' });
+    }
 
     return res.status(204).send();
   } catch (error: any) {
     console.error('Error deleting transaction', error);
-
-    if (error.code === 'P2025') {
-      return res.status(404).json({ error: 'Transaction not found' });
-    }
 
     return res.status(500).json({ error: 'Failed to delete transaction' });
   }

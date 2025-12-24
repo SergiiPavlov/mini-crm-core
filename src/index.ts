@@ -19,10 +19,16 @@ import invitesRouter from './routes/invites';
 const app = express();
 
 const NODE_ENV = process.env.NODE_ENV || 'development';
-if (NODE_ENV === 'production') {
-  if (!process.env.JWT_SECRET) {
+if (!process.env.JWT_SECRET) {
+  if (NODE_ENV === 'production') {
     throw new Error('JWT_SECRET is required in production');
   }
+
+  // Dev/test-friendly fallback to avoid runtime crashes on first jwt.sign/jwt.verify.
+  // Never rely on this value in production.
+  process.env.JWT_SECRET = 'dev-mini-crm-secret';
+  // eslint-disable-next-line no-console
+  console.warn('[warn] JWT_SECRET is not set; using a dev default secret. Set JWT_SECRET explicitly for real environments.');
 }
 
 // ---------- CORS (multi-site allowlist) ----------

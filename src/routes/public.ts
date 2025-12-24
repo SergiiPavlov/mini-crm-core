@@ -427,24 +427,6 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         }
       }
 
-      // Idempotency: return previously created entities for the same clientRequestId
-      if (normalizedClientRequestId) {
-        const existing = await prisma.case.findFirst({
-          where: {
-            projectId: project.id,
-            clientRequestId: normalizedClientRequestId,
-          },
-          include: { contact: true },
-        });
-
-        if (existing) {
-          return res.status(200).json({
-            contact: existing.contact,
-            case: existing,
-          });
-        }
-      }
-
       const contact = await prisma.contact.create({
         data: {
           projectId: project.id,
