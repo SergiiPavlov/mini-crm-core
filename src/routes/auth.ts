@@ -8,7 +8,7 @@ import { requireAuth } from '../middleware/auth';
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-mini-crm-secret';
+const JWT_SECRET = process.env.JWT_SECRET as string;
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
 function signToken(payload: { userId: number; email: string; role: string; projectId: number }) {
@@ -92,10 +92,18 @@ router.post('/register-owner', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(parsed.password, 10);
 
-    const user = await prisma.user.upsert({
+    const existingUser = await prisma.user.findUnique({
       where: { email: parsed.email },
-      update: { password: passwordHash },
-      create: {
+      select: { id: true },
+    });
+
+    if (existingUser) {
+      // Security: do not overwrite password for an existing account.
+      return res.status(409).json({ error: 'User already exists' });
+    }
+
+    const user = await prisma.user.create({
+      data: {
         email: parsed.email,
         password: passwordHash,
       },

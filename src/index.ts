@@ -18,6 +18,13 @@ import invitesRouter from './routes/invites';
 
 const app = express();
 
+const NODE_ENV = process.env.NODE_ENV || 'development';
+if (NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is required in production');
+  }
+}
+
 // ---------- CORS (multi-site allowlist) ----------
 // Legacy ENV allowlist (kept for backward compatibility)
 // CORS_ORIGINS="https://site1.com,https://site2.com"
@@ -126,7 +133,10 @@ app.use(
       return cb(new Error('CORS_NOT_ALLOWED'));
     })().catch((e) => {
       console.error('CORS options delegate failed', e);
-      // Fail-open in case of DB issues in dev; in prod you may want fail-closed.
+      if (NODE_ENV === 'production') {
+        return cb(new Error('CORS_DELEGATE_FAILED'));
+      }
+      // Fail-open in dev to avoid blocking local development when DB is down.
       return cb(null, {
         origin: true,
         methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],

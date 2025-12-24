@@ -67,10 +67,12 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
     const projectId = req.user.projectId;
     const { name, email, phone, notes } = createContactSchema.parse(req.body);
 
+    const safeName = (name && name.trim()) || (email && email.trim()) || (phone && phone.trim()) || 'Unknown';
+
     const contact = await prisma.contact.create({
       data: {
         projectId,
-        name: name || null,
+        name: safeName,
         email: email || null,
         phone: phone || null,
         notes: notes || null,

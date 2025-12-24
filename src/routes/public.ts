@@ -6,6 +6,18 @@ import { sendNotificationMail } from '../services/mailer';
 
 const router = express.Router();
 
+
+function computeContactName(name?: string, email?: string, phone?: string): string {
+  const n = (name && name.trim()) || '';
+  if (n) return n.slice(0, 255);
+  const e = (email && email.trim()) || '';
+  if (e) return e.slice(0, 255);
+  const p = (phone && phone.trim()) || '';
+  if (p) return p.slice(0, 255);
+  return 'Unknown';
+}
+
+
 // ---------- Public rate limiting (platform safety) ----------
 // Defaults:
 // - GET config: 60/min per project+IP
@@ -436,7 +448,7 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       const contact = await prisma.contact.create({
         data: {
           projectId: project.id,
-          name: name || null,
+          name: computeContactName(name, email, phone),
           email: email || null,
           phone: phone || null,
           notes: message || null,
@@ -586,7 +598,7 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         contact = await prisma.contact.create({
           data: {
             projectId: project.id,
-            name: name || null,
+            name: computeContactName(name, email, phone),
             email: email || null,
             phone: phone || null,
             notes: message || null,
@@ -777,7 +789,7 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         contact = await prisma.contact.create({
           data: {
             projectId: project.id,
-            name: name || null,
+            name: computeContactName(name, email, phone),
             email: email || null,
             phone: phone || null,
             notes: message || null,
@@ -912,7 +924,7 @@ let contact: any = null;
         contact = await prisma.contact.create({
           data: {
             projectId: project.id,
-            name: name || null,
+            name: computeContactName(name, email, phone),
             email: email || null,
             phone: phone || null,
             notes: null,

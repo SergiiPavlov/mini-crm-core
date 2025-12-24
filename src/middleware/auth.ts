@@ -3,7 +3,7 @@ import jwt from 'jsonwebtoken';
 import { AuthRequest, AuthUser } from '../types/auth';
 import prisma from '../db/client';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-mini-crm-secret';
+const JWT_SECRET = process.env.JWT_SECRET as string;
 
 export async function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
