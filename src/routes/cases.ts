@@ -58,10 +58,12 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
 
     if (status) {
       // support simple comma-separated list: status=new,in_progress
-      const statuses = status.split(',').map((s) => s.trim()).filter(Boolean);
-      if (statuses.length === 1) {
+      const statuses = status.split(',').map((s) => s.trim()).filter(Boolean).filter((s) => s !== 'all');
+      if (statuses.length === 0) {
+        // 'all' (or empty) means no status filter
+      } else if (statuses.length === 1) {
         where.status = statuses[0];
-      } else if (statuses.length > 1) {
+      } else {
         where.status = { in: statuses };
       }
     }
