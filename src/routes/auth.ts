@@ -113,7 +113,8 @@ router.post('/bootstrap-owner', async (req, res) => {
   }
 
   const passwordHash = await bcrypt.hash(password, 10);
-  const user = await prisma.user.create({ data: { email, passwordHash } });
+  // Prisma `User` model stores the hashed password in the `password` field.
+  const user = await prisma.user.create({ data: { email, password: passwordHash } });
 
   await prisma.membership.create({
     data: { userId: user.id, projectId: project.id, role: 'owner' },
