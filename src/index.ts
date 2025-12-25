@@ -129,7 +129,15 @@ app.use(
       }
 
       // Private/admin endpoints: use ENV allowlist (or allow all if empty).
-      if (corsOriginsEnv.length === 0 || corsOriginsEnv.includes(origin)) {
+      // Browsers still send the Origin header for same-origin fetch/XHR.
+      // Do not block our own admin UI origin even if CORS_ORIGINS is configured only
+      // for external widget hosts.
+      const host = req.header('Host');
+      const isSameOrigin = host
+        ? origin === `http://${host}` || origin === `https://${host}`
+        : false;
+
+      if (isSameOrigin || corsOriginsEnv.length === 0 || corsOriginsEnv.includes(origin)) {
         return cb(null, {
           origin: true,
           methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
@@ -166,16 +174,31 @@ app.use(limiter);
 
 // ---------- Static assets (admin UI + widgets) ----------
 
-const publicDir = path.join(__dirname, '..', 'public');
-
-app.use('/admin', express.static(path.join(publicDir, 'admin')));
+const publicDir = path.resolve(process.cwd(), 'public');
+ 
 app.use('/widget', express.static(path.join(publicDir, 'widget')));
+
+// Admin UI
+app.use('/admin', express.static(path.join(publicDir, 'admin')));
+app.get('/admin', (_req, res) => res.redirect('/admin/'));
 
 // ---------- Simple healthcheck ----------
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' });
 });
+
+// ---------- Root + Admin UI ----------
+// Render opens the service URL at '/', so avoid "Cannot GET /".
+app.get('/', (_req, res) => {
+  res.status(200).json({
+    name: 'mini-crm-core',
+    status: 'ok',
+    health: '/health',
+    admin: '/admin',
+  });
+});
+ 
 
 // ---------- Routers ----------
 

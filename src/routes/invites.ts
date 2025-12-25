@@ -17,6 +17,15 @@ function signToken(payload: { userId: number; email: string; role: string; proje
   return jwt.sign(payload, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN });
 }
 
+function normalizeInviteToken(input: unknown): string {
+  // The admin UI may carry tokens wrapped in angle brackets from URLs (e.g. "<abc123>").
+  // Normalize on the server to avoid confusing 404/"Invite not found" when the token is correct.
+  return String(input ?? '')
+    .trim()
+    .replace(/^[<\s]+/, '')
+    .replace(/[>\s]+$/, '');
+}
+
 
 const createInviteSchema = z.object({
   role: z.enum(['owner', 'admin', 'viewer']).optional().default('admin'),
@@ -115,12 +124,13 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
 // Payload: { token, email, password }
 router.post('/accept-public', async (req, res) => {
   try {
-    const parsed = acceptInvitePublicSchema.parse(req.body || {});
+		const parsed = acceptInvitePublicSchema.parse(req.body || {});
+		const inviteToken = normalizeInviteToken(parsed.token);
     const now = new Date();
 
     const invite = await prisma.projectInvite.findFirst({
       where: {
-        token: parsed.token,
+        token: inviteToken,
         usedAt: null,
         OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
       },
@@ -168,7 +178,7 @@ router.post('/accept-public', async (req, res) => {
       data: { usedAt: new Date(), usedByUserId: (user as any).id },
     });
 
-    const token = signToken({
+    const jwtToken = signToken({
       userId: (user as any).id,
       email: (user as any).email,
       role: invite.role,
@@ -176,7 +186,7 @@ router.post('/accept-public', async (req, res) => {
     });
 
     return res.json({
-      token,
+      token: jwtToken,
       user: {
         id: (user as any).id,
         email: (user as any).email,
@@ -201,9 +211,10 @@ router.post('/accept', requireAuth, async (req: AuthRequest, res) => {
     if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
     const parsed = acceptInviteSchema.parse(req.body || {});
+    const inviteToken = normalizeInviteToken(parsed.token);
 
     const invite = await prisma.projectInvite.findUnique({
-      where: { token: parsed.token },
+      where: { token: inviteToken },
     });
 
     if (!invite) {
