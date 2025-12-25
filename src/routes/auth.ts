@@ -1,6 +1,7 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import type { SignOptions } from 'jsonwebtoken';
 import { z, ZodError } from 'zod';
 import prisma from '../db/client';
@@ -21,6 +22,12 @@ const registerOwnerSchema = z.object({
   email: z.string().email('Invalid email'),
   password: z.string().min(6, 'Password must be at least 6 characters'),
   projectSlug: z.string().min(1, 'projectSlug is required'),
+});
+const bootstrapOwnerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(6),
+  projectSlug: z.string().min(2),
+  projectName: z.string().min(2).optional(),
 });
 
 const registerUserSchema = z.object({
@@ -71,6 +78,56 @@ router.post('/register', async (req, res) => {
 });
 
 // POST /auth/register-owner — create first owner for a project
+
+router.post('/bootstrap-owner', async (req, res) => {
+  const parsed = bootstrapOwnerSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid payload', details: parsed.error.issues });
+  }
+
+  const email = parsed.data.email.trim().toLowerCase();
+  const password = parsed.data.password;
+  const projectSlug = parsed.data.projectSlug.trim().toLowerCase();
+  const projectName = (parsed.data.projectName || projectSlug).trim();
+
+  // Security: avoid "claiming" an existing user/project.
+  const existingUser = await prisma.user.findUnique({ where: { email } });
+  if (existingUser) {
+    return res.status(409).json({ error: 'User already exists' });
+  }
+
+  let project = await prisma.project.findUnique({ where: { slug: projectSlug } });
+  if (project) {
+    const membersCount = await prisma.membership.count({ where: { projectId: project.id } });
+    if (membersCount > 0) {
+      return res.status(409).json({ error: 'Project already initialized' });
+    }
+  } else {
+    project = await prisma.project.create({
+      data: {
+        name: projectName,
+        slug: projectSlug,
+        publicKey: crypto.randomBytes(24).toString('hex'),
+      },
+    });
+  }
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  const user = await prisma.user.create({ data: { email, passwordHash } });
+
+  await prisma.membership.create({
+    data: { userId: user.id, projectId: project.id, role: 'owner' },
+  });
+
+  const token = signToken({ userId: user.id, email: user.email, role: 'owner', projectId: project.id });
+
+  return res.status(201).json({
+    token,
+    user: { id: user.id, email: user.email, role: 'owner', projectId: project.id },
+    project: { id: project.id, name: project.name, slug: project.slug, publicKey: project.publicKey },
+  });
+});
+
 router.post('/register-owner', async (req, res) => {
   try {
     const parsed = registerOwnerSchema.parse(req.body);

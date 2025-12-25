@@ -562,7 +562,39 @@
           </form>
         </div>
 
-        <div class="card" id="data-card" style="margin-top: 16px; display:none;">
+        
+<div class="card" id="invite-card" style="margin-top: 16px; display:none;">
+  <h2 class="login-title">Прийняти запрошення</h2>
+  <div class="muted" id="invite-card-subtitle" style="margin-bottom: 10px;">
+    Введіть email та пароль, щоб прийняти інвайт і увійти в CRM.
+  </div>
+
+  <form id="invite-card-form">
+    <div class="field">
+      <label for="invite-card-token">Token</label>
+      <input id="invite-card-token" name="inviteToken" type="text" readonly />
+    </div>
+    <div class="field">
+      <label for="invite-card-email">Email</label>
+      <input id="invite-card-email" name="inviteEmail" type="email" autocomplete="username" />
+    </div>
+    <div class="field">
+      <label for="invite-card-password">Пароль</label>
+      <input id="invite-card-password" name="invitePassword" type="password" autocomplete="new-password" />
+    </div>
+
+    <div class="login-actions" style="gap: 8px;">
+      <button type="submit" id="invite-card-accept-btn">Прийняти інвайт</button>
+      <button type="button" class="btn-secondary" id="invite-card-accept-authed-btn" style="display:none;">
+        Прийняти як поточний користувач
+      </button>
+      <button type="button" class="btn-secondary" id="invite-card-back-btn">Назад</button>
+    </div>
+    <div class="status" id="invite-card-status"></div>
+  </form>
+</div>
+
+<div class="card" id="data-card" style="margin-top: 16px; display:none;">
           <div class="tabs">
             <button class="tab-btn active" data-tab="cases">Звернення (Cases)</button>
             <button class="tab-btn" data-tab="contacts">Контакти (Contacts)</button>
@@ -1446,6 +1478,16 @@ var currentCaseFilter = 'all';
         var loginBtn = document.getElementById('login-btn');
         var logoutBtn = document.getElementById('logout-btn');
         var loginStatus = document.getElementById('login-status');
+        var inviteCard = document.getElementById('invite-card');
+        var inviteCardSubtitle = document.getElementById('invite-card-subtitle');
+        var inviteCardForm = document.getElementById('invite-card-form');
+        var inviteCardTokenInput = document.getElementById('invite-card-token');
+        var inviteCardEmailInput = document.getElementById('invite-card-email');
+        var inviteCardPasswordInput = document.getElementById('invite-card-password');
+        var inviteCardStatus = document.getElementById('invite-card-status');
+        var inviteCardAcceptAuthedBtn = document.getElementById('invite-card-accept-authed-btn');
+        var inviteCardBackBtn = document.getElementById('invite-card-back-btn');
+
         var userInfoEl = document.getElementById('user-info');
                 var projectSwitcherEl = document.getElementById('project-switcher');
         var projectSelectEl = document.getElementById('project-select');
@@ -1465,7 +1507,7 @@ var currentCaseFilter = 'all';
         var invitesStatus = document.getElementById('invites-status');
         var inviteAcceptTokenInput = document.getElementById('invite-accept-token');
         var inviteAcceptBtn = document.getElementById('invite-accept-btn');
-        var inviteAcceptStatus = document.getElementById('invite-accept-status');
+        var inviteCardStatus = document.getElementById('invite-card-status');
 
         var projectsList = [];
         var currentProject = null;
@@ -1836,6 +1878,165 @@ var dataCard = document.getElementById('data-card');
           }
         }
 
+
+function normalizeInviteToken(raw) {
+  if (!raw) return '';
+  // token can be URL-encoded and sometimes wrapped in angle brackets
+  // (e.g. "<83c...>") — strip those to avoid "Invite not found".
+  return String(raw)
+    .trim()
+    .replace(/^[<\s]+/, '')
+    .replace(/[>\s]+$/, '');
+}
+
+function getInviteTokenFromUrl() {
+  try {
+    var sp = new URLSearchParams(window.location.search || '');
+    var t = sp.get('invite') || sp.get('token') || '';
+    if (t) return normalizeInviteToken(t);
+
+    // allow hash like #invite=TOKEN or #/accept?invite=TOKEN
+    var h = window.location.hash || '';
+    if (!h) return '';
+    var qIndex = h.indexOf('?');
+    if (qIndex >= 0) {
+      var qs = h.slice(qIndex + 1);
+      var sp2 = new URLSearchParams(qs);
+      var t2 = sp2.get('invite') || sp2.get('token') || '';
+      if (t2) return normalizeInviteToken(t2);
+    }
+    var m = h.match(/invite=([a-zA-Z0-9]+)/);
+    if (m && m[1]) return normalizeInviteToken(m[1]);
+  } catch (e) {}
+  return '';
+}
+
+function clearInviteFromUrl() {
+  try {
+    var url = new URL(window.location.href);
+    url.searchParams.delete('invite');
+    url.searchParams.delete('token');
+    // keep hash as-is
+    window.history.replaceState({}, document.title, url.toString());
+  } catch (e) {}
+}
+
+function showInviteCard(token) {
+  if (!inviteCard) return;
+  if (loginCard) loginCard.style.display = 'none';
+  if (dataCard) dataCard.style.display = 'none';
+  inviteCard.style.display = '';
+  var nt = normalizeInviteToken(token || '');
+  if (inviteCardTokenInput) inviteCardTokenInput.value = nt || '';
+
+  var authed = !!getToken();
+  if (inviteCardAcceptAuthedBtn) {
+    inviteCardAcceptAuthedBtn.style.display = authed ? '' : 'none';
+  }
+  if (inviteCardSubtitle) {
+    inviteCardSubtitle.textContent = authed
+      ? 'Ви вже увійшли. Можна прийняти інвайт одним кліком, або ввести email+пароль і прийняти як інший користувач.'
+      : 'Введіть email та пароль. Якщо користувач існує — буде виконаний вхід, якщо ні — буде створений обліковий запис.';
+  }
+
+  if (inviteCardStatus) {
+    inviteCardStatus.textContent = '';
+    inviteCardStatus.className = 'status';
+  }
+}
+
+function hideInviteCard() {
+  if (!inviteCard) return;
+  inviteCard.style.display = 'none';
+  if (loginCard) loginCard.style.display = '';
+}
+
+function setInviteStatus(message, isError) {
+  if (!inviteCardStatus) return;
+  inviteCardStatus.textContent = message || '';
+  inviteCardStatus.className = 'status' + (isError ? ' error' : message ? ' ok' : '');
+}
+
+function acceptInvitePublic(token) {
+  token = normalizeInviteToken(token);
+  var email = (inviteCardEmailInput && inviteCardEmailInput.value ? inviteCardEmailInput.value : '').trim();
+  var password = inviteCardPasswordInput && inviteCardPasswordInput.value ? inviteCardPasswordInput.value : '';
+  if (!email || !password) {
+    setInviteStatus('Вкажіть email та пароль', true);
+    return Promise.resolve();
+  }
+
+  setInviteStatus('Приймаємо інвайт...', false);
+
+  return fetch(apiBase + '/invites/accept-public', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: token, email: email, password: password }),
+  })
+    .then(function (res) {
+      if (!res.ok) {
+        return safeJson(res).then(function (data) {
+          throw new Error((data && data.error) || 'Не вдалося прийняти інвайт');
+        });
+      }
+      return res.json();
+    })
+    .then(function (data) {
+      if (!data || !data.token || !data.user) throw new Error('Invalid server response');
+      setToken(data.token);
+      clearInviteFromUrl();
+      // after accepting — user role + projectId in token already
+      return refreshProjectHeader(data.user).then(function () {
+        if (logoutBtn) logoutBtn.style.display = '';
+        if (inviteCard) inviteCard.style.display = 'none';
+        if (dataCard) dataCard.style.display = '';
+        setStatus('Успішно. Ви увійшли.', false);
+        loadProjectConfig().finally(function () {
+          if (typeof updateTransactionCategoryFilterOptions === 'function') {
+            updateTransactionCategoryFilterOptions();
+          }
+          loadData();
+        });
+      });
+    })
+    .catch(function (err) {
+      console.error('Invite accept-public error', err);
+      setInviteStatus(err.message || 'Помилка прийняття інвайта', true);
+    });
+}
+
+function acceptInviteAuthed(token) {
+  token = normalizeInviteToken(token);
+  setInviteStatus('Приймаємо інвайт...', false);
+  return authedFetch('/invites/accept', {
+    method: 'POST',
+    body: JSON.stringify({ token: token }),
+  })
+    .then(function (res) {
+      if (!res.ok) {
+        return safeJson(res).then(function (data) {
+          throw new Error((data && data.error) || 'Не вдалося прийняти інвайт');
+        });
+      }
+      return res.json();
+    })
+    .then(function (data) {
+      clearInviteFromUrl();
+      setInviteStatus('Готово. Проєкт додано.', false);
+      if (inviteCard) inviteCard.style.display = 'none';
+      if (dataCard) dataCard.style.display = '';
+      return loadProjectsList().then(function () {
+        if (data && data.projectId) {
+          return selectProject(data.projectId);
+        }
+      });
+    })
+    .catch(function (err) {
+      console.error('Invite accept (authed) error', err);
+      setInviteStatus(err.message || 'Помилка прийняття інвайта', true);
+    });
+}
+
         function authedFetch(path, options) {
           var token = getToken();
           if (!token) {
@@ -1960,9 +2161,9 @@ var dataCard = document.getElementById('data-card');
             invitesStatus.textContent = '';
             invitesStatus.className = 'status';
           }
-          if (inviteAcceptStatus) {
-            inviteAcceptStatus.textContent = '';
-            inviteAcceptStatus.className = 'status';
+          if (inviteCardStatus) {
+            inviteCardStatus.textContent = '';
+            inviteCardStatus.className = 'status';
           }
 
           Promise.all([loadCurrentProject(), loadInvitesList()])
@@ -2059,10 +2260,31 @@ var dataCard = document.getElementById('data-card');
               setInvitesStatus('Інвайт створено', false);
               var token = data && data.token ? data.token : '';
               if (inviteCreateOut) {
-                inviteCreateOut.innerHTML =
-                  '<div>Token: <span class="mono">' + escapeHtml(token) + '</span></div>' +
-                  '<div class="muted" style="margin-top:4px;">Передайте цей token іншому користувачу (він має бути залогінений) і він натисне "Прийняти інвайт".</div>';
-              }
+  var path = window.location.pathname || '/admin/';
+  // ensure we build URL like https://host/admin/?invite=TOKEN
+  if (path.indexOf('/admin') === -1) {
+    path = '/admin/';
+  } else {
+    path = path.replace(/index\.html$/i, '');
+  }
+  if (path[path.length - 1] !== '/') path += '/';
+  var inviteUrl = window.location.origin + path + '?invite=' + encodeURIComponent(token);
+
+  inviteCreateOut.innerHTML =
+    '<div>Token: <span class="mono">' + escapeHtml(token) + '</span></div>' +
+    '<div style="margin-top:6px;">Посилання для запрошення: <a href="' + escapeHtml(inviteUrl) + '" target="_blank" rel="noopener">' +
+      escapeHtml(inviteUrl) + '</a></div>' +
+    '<div style="margin-top:6px;"><button type="button" class="btn-secondary" id="copy-invite-link-btn">Скопіювати посилання</button></div>' +
+    '<div class="muted" style="margin-top:6px;">Користувач відкриває посилання, вводить email+пароль, і система автоматично приймає інвайт.</div>';
+
+  var copyBtn = document.getElementById('copy-invite-link-btn');
+  if (copyBtn) {
+    copyBtn.onclick = function () {
+      safeCopy(inviteUrl);
+      setInvitesStatus('Посилання скопійовано', false);
+    };
+  }
+}
               return loadInvitesList();
             })
             .catch(function (err) {
@@ -2074,15 +2296,15 @@ var dataCard = document.getElementById('data-card');
         function acceptInvite() {
           var token = (inviteAcceptTokenInput && inviteAcceptTokenInput.value ? inviteAcceptTokenInput.value : '').trim();
           if (!token) {
-            if (inviteAcceptStatus) {
-              inviteAcceptStatus.textContent = 'Вкажіть token';
-              inviteAcceptStatus.className = 'status error';
+            if (inviteCardStatus) {
+              inviteCardStatus.textContent = 'Вкажіть token';
+              inviteCardStatus.className = 'status error';
             }
             return Promise.resolve();
           }
-          if (inviteAcceptStatus) {
-            inviteAcceptStatus.textContent = 'Приймаємо...';
-            inviteAcceptStatus.className = 'status';
+          if (inviteCardStatus) {
+            inviteCardStatus.textContent = 'Приймаємо...';
+            inviteCardStatus.className = 'status';
           }
 
           return authedFetch('/invites/accept', {
@@ -2098,9 +2320,9 @@ var dataCard = document.getElementById('data-card');
               return res.json();
             })
             .then(function (data) {
-              if (inviteAcceptStatus) {
-                inviteAcceptStatus.textContent = 'Готово. Проєкт додано.';
-                inviteAcceptStatus.className = 'status ok';
+              if (inviteCardStatus) {
+                inviteCardStatus.textContent = 'Готово. Проєкт додано.';
+                inviteCardStatus.className = 'status ok';
               }
               if (inviteAcceptTokenInput) inviteAcceptTokenInput.value = '';
               return loadProjectsList().then(function () {
@@ -2113,9 +2335,9 @@ var dataCard = document.getElementById('data-card');
             })
             .catch(function (err) {
               console.error('Invite accept error', err);
-              if (inviteAcceptStatus) {
-                inviteAcceptStatus.textContent = err.message || 'Помилка прийняття інвайта';
-                inviteAcceptStatus.className = 'status error';
+              if (inviteCardStatus) {
+                inviteCardStatus.textContent = err.message || 'Помилка прийняття інвайта';
+                inviteCardStatus.className = 'status error';
               }
             });
         }
@@ -4477,7 +4699,33 @@ caseModalClose.addEventListener('click', function () {
           });
         }
 
-        var existingToken = getToken();
+// Invite accept flow: if URL contains ?invite=TOKEN then show accept screen
+var inviteTokenFromUrl = getInviteTokenFromUrl();
+if (inviteTokenFromUrl) {
+  showInviteCard(inviteTokenFromUrl);
+
+  if (inviteCardForm) {
+    inviteCardForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      acceptInvitePublic(inviteTokenFromUrl);
+    });
+  }
+
+  if (inviteCardAcceptAuthedBtn) {
+    inviteCardAcceptAuthedBtn.addEventListener('click', function () {
+      acceptInviteAuthed(inviteTokenFromUrl);
+    });
+  }
+
+  if (inviteCardBackBtn) {
+    inviteCardBackBtn.addEventListener('click', function () {
+      clearInviteFromUrl();
+      hideInviteCard();
+    });
+  }
+}
+
+var existingToken = getToken();
         if (existingToken) {
           authedFetch('/auth/me')
             .then(function (res) {
