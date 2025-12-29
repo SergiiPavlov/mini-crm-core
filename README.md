@@ -4,7 +4,7 @@
 
 - Copy `.env.example` to `.env` and fill values.
 - Start: `npm run dev`
-- Smoke: `npm run smoke` (supports `BASE`, `SMOKE_ORIGIN`, and test flags).
+- Smoke: `npm run smoke` (supports `BASE`, `ORIGIN` / `SMOKE_ORIGIN`, and test flags).
 
 Smoke flags:
 - `SMOKE_TEST_IDEMPOTENCY=1` — checks idempotent submit with `X-Request-Id`.
@@ -118,7 +118,7 @@ Invites allow an owner/admin to onboard another global user into the current pro
   Body:
 
   ```json
-  { "role": "admin", "expiresInDays": 7 }
+  { "role": "admin", "ttlHours": 168 }
   ```
 
 - `GET /invites` — list active (unused) invite tokens for the current project.
@@ -245,24 +245,38 @@ The script will:
 - **Honeypot** — public lead form includes a hidden field. If a bot fills it, the API responds with success but silently ignores the lead. This reduces spam from simple bots.
 - **Idempotency** — public submit endpoints support `X-Request-Id` (recommended). Repeated submissions with the same `X-Request-Id` return the previously created entities.
 
-## Smoke test (bash)
+## Smoke test (Local / Render)
 
 For a quick end-to-end verification of **public integration** (projectKey + origin allowlist + public forms),
-run the built-in smoke test script:
+use the built-in smoke test script via npm.
+
+### Local
+
+Terminal A (server):
 
 ```bash
-bash scripts/smoke.sh
+npm run dev
 ```
 
-Optional environment overrides:
+Terminal B (smoke):
 
 ```bash
-BASE="http://localhost:4000" \
-EMAIL="owner@example.com" \
-PASS="secret123" \
-ORIGIN="https://test.local" \
-bash scripts/smoke.sh
+SMOKE_INVITES=1 npm run smoke
 ```
+
+### Render
+
+```bash
+SMOKE_INVITES=1 \
+BASE="https://mini-crm-core.onrender.com" \
+ORIGIN="https://mini-crm-core.onrender.com" \
+npm run smoke
+```
+
+Notes:
+- `SMOKE_INVITES=1` includes invite flow (create invite → accept-public → access `/cases`).
+- `ORIGIN` must be allowlisted in the project settings (the script attempts to add it; 201/409 are OK).
+- Back-compat: you can also set `SMOKE_ORIGIN` instead of `ORIGIN`.
 
 What it checks:
 - `/health` is OK
@@ -435,16 +449,22 @@ Body JSON:
 - Знаходить або створює `Contact`.
 - Створює `Case` з заголовком `"Нове бронювання з сайту"` і зібраними деталями.
 
-Приклад віджета:
+Приклад віджета (універсальний `widget.js`, кнопка + модалка):
 
 ```html
-<div id="booking-widget"></div>
 <script
-  src="https://YOUR_CRM_BASE_URL/widget/booking-form.js"
+  src="https://YOUR_CRM_BASE_URL/widget.js"
+  data-api-base="https://YOUR_CRM_BASE_URL"
   data-project-slug="demo"
-  data-source="booking-widget"
+  data-project-key="YOUR_PUBLIC_KEY"
+  data-form="feedback"
+  data-button-text="Залишити відгук"
 ></script>
 ```
+
+Сумісність: залишилися окремі віджети без модалки (`/widget/feedback-form.js`, `/widget/lead-form.js`, `/widget/donation-form.js`, `/widget/booking-form.js`).
+
+
 
 ### Feedback form
 
