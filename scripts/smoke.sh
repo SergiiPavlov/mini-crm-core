@@ -21,7 +21,8 @@ BASE="${BASE:-http://localhost:4000}"
 EMAIL="${EMAIL:-owner@example.com}"
 PASSWORD="${PASSWORD:-${PASS:-secret123}}"
 ORIGIN_DEFAULT="https://test.local"
-ORIGIN="${ORIGIN:-$ORIGIN_DEFAULT}"
+# Back-compat: earlier docs used SMOKE_ORIGIN.
+ORIGIN="${ORIGIN:-${SMOKE_ORIGIN:-$ORIGIN_DEFAULT}}"
 
 log()  { printf "[smoke] %s\n" "$*"; }
 fail() { printf "❌ SMOKE FAIL: %s\n" "$*" >&2; exit 1; }

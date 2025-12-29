@@ -546,14 +546,14 @@
       <main>
         <div class="card" id="login-card">
           <h2 class="login-title">Вхід до CRM</h2>
-          <form id="login-form">
+	          <form id="login-form" autocomplete="off">
             <div class="field">
               <label for="email">Email</label>
-              <input id="email" name="email" type="email" autocomplete="username" required />
+	              <input id="email" name="email" type="email" autocomplete="off" required />
             </div>
             <div class="field">
               <label for="password">Пароль</label>
-              <input id="password" name="password" type="password" autocomplete="current-password" required />
+	              <input id="password" name="password" type="password" autocomplete="new-password" required />
             </div>
             <div class="login-actions">
               <button type="submit" id="login-btn">Увійти</button>
@@ -1477,6 +1477,8 @@ var currentCaseFilter = 'all';
         var loginForm = document.getElementById('login-form');
         var loginBtn = document.getElementById('login-btn');
         var logoutBtn = document.getElementById('logout-btn');
+	        var loginEmailInput = document.getElementById('email');
+	        var loginPasswordInput = document.getElementById('password');
         var loginStatus = document.getElementById('login-status');
         var inviteCard = document.getElementById('invite-card');
         var inviteCardSubtitle = document.getElementById('invite-card-subtitle');
@@ -1511,6 +1513,39 @@ var currentCaseFilter = 'all';
 
         var projectsList = [];
         var currentProject = null;
+
+	        // Autofill guard: many browsers/password-managers ignore autocomplete="off" and may prefill
+	        // the login form even on a fresh page load (especially in production). For a CRM admin panel,
+	        // it's safer to start with empty fields when the user is not authenticated.
+	        (function setupLoginAutofillGuard() {
+	          if (!loginForm || !loginEmailInput || !loginPasswordInput) return;
+	
+	          // If user starts typing, never clear.
+	          var touched = false;
+	          function markTouched() { touched = true; }
+	          ['input', 'change', 'keydown', 'paste'].forEach(function (evt) {
+	            loginEmailInput.addEventListener(evt, markTouched);
+	            loginPasswordInput.addEventListener(evt, markTouched);
+	          });
+
+	          function clearIfGuest() {
+	            try {
+	              if (touched) return;
+	              var t = localStorage.getItem('token');
+	              if (t) return;
+	              loginEmailInput.value = '';
+	              loginPasswordInput.value = '';
+	            } catch (e) {
+	              // ignore
+	            }
+	          }
+
+	          // Clear immediately, and again after autofill has had a chance to run.
+	          clearIfGuest();
+	          setTimeout(clearIfGuest, 50);
+	          setTimeout(clearIfGuest, 250);
+	          setTimeout(clearIfGuest, 800);
+	        })();
         
         function getTransactionCategoryMeta(code) {
           return transactionCategoryConfigMap[code] || null;

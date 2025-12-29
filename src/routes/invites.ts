@@ -27,10 +27,25 @@ function normalizeInviteToken(input: unknown): string {
 }
 
 
-const createInviteSchema = z.object({
-  role: z.enum(['owner', 'admin', 'viewer']).optional().default('admin'),
-  expiresInDays: z.number().int().positive().max(365).optional().default(7),
-});
+const createInviteSchema = z
+  .object({
+    role: z.enum(['owner', 'admin', 'viewer']).optional().default('admin'),
+    // Back-compat: older clients used `expiresInDays`.
+    expiresInDays: z.number().int().positive().max(365).optional(),
+    // Newer clients (and our docs/scripts) use `ttlHours` for more control.
+    ttlHours: z.number().int().positive().max(24 * 365).optional(),
+  })
+  .transform((v) => {
+    const ttlHours = typeof v.ttlHours === 'number' ? v.ttlHours : undefined;
+    const expiresInDays = typeof v.expiresInDays === 'number' ? v.expiresInDays : undefined;
+
+    // Priority: ttlHours → expiresInDays → default 7d
+    const normalizedTtlHours = ttlHours ?? (expiresInDays ?? 7) * 24;
+    return {
+      role: v.role ?? 'admin',
+      ttlHours: normalizedTtlHours,
+    };
+  });
 
 const acceptInviteSchema = z.object({
   token: z.string().min(8, 'token is required'),
@@ -57,7 +72,7 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
     const parsed = createInviteSchema.parse(req.body || {});
 
     const token = crypto.randomBytes(16).toString('hex');
-    const expiresAt = new Date(Date.now() + parsed.expiresInDays * 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + parsed.ttlHours * 60 * 60 * 1000);
 
     const invite = await prisma.projectInvite.create({
       data: {
@@ -156,76 +171,104 @@ router.post('/accept-public', async (req, res) => {
 		const inviteToken = normalizeInviteToken(parsed.token);
     const now = new Date();
 
-    const invite = await prisma.projectInvite.findUnique({
-      where: { token: inviteToken },
-    });
-
-    if (!invite) {
-      return res.status(404).json({ error: 'Invite not found' });
+    // Pre-check password if the user exists. We do this BEFORE consuming the invite,
+    // so a wrong password doesn't burn a one-time link.
+    const existingUser = await prisma.user.findUnique({ where: { email: parsed.email } });
+    if (existingUser) {
+      const ok = await bcrypt.compare(parsed.password, (existingUser as any).password || '');
+      if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    if (invite.usedAt) {
-      return res.status(409).json({ error: 'Invite already used' });
-    }
+    const result = await prisma.$transaction(async (tx) => {
+      const invite = await tx.projectInvite.findUnique({ where: { token: inviteToken } });
 
-    if (invite.expiresAt && invite.expiresAt.getTime() < now.getTime()) {
-      return res.status(410).json({ error: 'Invite expired' });
-    }
-
-    // get or create user
-    let user = await prisma.user.findUnique({
-      where: { email: parsed.email },
-      include: { memberships: true },
-    });
-
-    if (user) {
-      // verify password
-      const ok = await bcrypt.compare(parsed.password, (user as any).password || '');
-      if (!ok) {
-        return res.status(401).json({ error: 'Invalid credentials' });
+      if (!invite) {
+        return { kind: 'not_found' as const };
       }
-    } else {
-      const passwordHash = await bcrypt.hash(parsed.password, 10);
-      user = await prisma.user.create({
-        data: { email: parsed.email, password: passwordHash },
-        include: { memberships: true },
-      });
-    }
 
-    // ensure membership
-    const existing = (user as any).memberships?.find((m: any) => m.projectId === invite.projectId);
-    if (!existing) {
-      await prisma.membership.create({
-        data: {
+      if (invite.expiresAt && invite.expiresAt.getTime() < now.getTime()) {
+        return { kind: 'expired' as const, invite };
+      }
+
+      // Atomic claim: only one request can flip usedAt from NULL → now.
+      const claim = await tx.projectInvite.updateMany({
+        where: {
+          id: invite.id,
+          usedAt: null,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        },
+        data: { usedAt: now },
+      });
+
+      if (claim.count === 0) {
+        // Someone else already used it (or it expired between checks)
+        const fresh = await tx.projectInvite.findUnique({ where: { id: invite.id } });
+        if (fresh?.expiresAt && fresh.expiresAt.getTime() < now.getTime()) {
+          return { kind: 'expired' as const, invite: fresh };
+        }
+        return { kind: 'used' as const, invite: fresh || invite };
+      }
+
+      // get or create user
+      let user = existingUser
+        ? await tx.user.findUnique({ where: { email: existingUser.email } })
+        : await tx.user.findUnique({ where: { email: parsed.email } });
+
+      if (!user) {
+        const passwordHash = await bcrypt.hash(parsed.password, 10);
+        try {
+          user = await tx.user.create({
+            data: { email: parsed.email, password: passwordHash },
+          });
+        } catch (e: any) {
+          // Race: user might have been created concurrently. Re-read.
+          user = await tx.user.findUnique({ where: { email: parsed.email } });
+          if (!user) throw e;
+        }
+      }
+
+      // ensure membership (idempotent)
+      await tx.membership.upsert({
+        where: { userId_projectId: { userId: (user as any).id, projectId: invite.projectId } },
+        update: { role: invite.role },
+        create: {
           projectId: invite.projectId,
           userId: (user as any).id,
           role: invite.role,
         },
       });
-    }
 
-    // mark invite used
-    await prisma.projectInvite.update({
-      where: { id: invite.id },
-      data: { usedAt: new Date(), usedByUserId: (user as any).id },
-    });
+      // attach who used it (best-effort, still idempotent)
+      await tx.projectInvite.update({
+        where: { id: invite.id },
+        data: { usedByUserId: (user as any).id },
+      });
 
-    const jwtToken = signToken({
-      userId: (user as any).id,
-      email: (user as any).email,
-      role: invite.role,
-      projectId: invite.projectId,
-    });
-
-    return res.json({
-      token: jwtToken,
-      user: {
-        id: (user as any).id,
+      const jwtToken = signToken({
+        userId: (user as any).id,
         email: (user as any).email,
         role: invite.role,
         projectId: invite.projectId,
-      },
+      });
+
+      return {
+        kind: 'ok' as const,
+        invite,
+        token: jwtToken,
+        user: {
+          id: (user as any).id,
+          email: (user as any).email,
+          role: invite.role,
+          projectId: invite.projectId,
+        },
+      };
     });
+
+    if (result.kind === 'not_found') return res.status(404).json({ error: 'Invite not found' });
+    if (result.kind === 'used') return res.status(409).json({ error: 'Invite already used' });
+    if (result.kind === 'expired') return res.status(410).json({ error: 'Invite expired' });
+
+    return res.json({ token: result.token, user: result.user });
   } catch (error) {
     console.error('Failed to accept invite (public)', error);
 
