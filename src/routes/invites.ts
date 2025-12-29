@@ -118,6 +118,34 @@ router.get('/', requireAuth, async (req: AuthRequest, res) => {
   }
 });
 
+// GET /invites/public/:token/status — public helper for the admin UI to check invite link state
+// Returns 404 if invite not found; otherwise 200 with { status: 'valid' | 'used' | 'expired', role, expiresAt }
+router.get('/public/:token/status', async (req, res) => {
+  try {
+    const inviteToken = normalizeInviteToken(req.params.token);
+    const now = new Date();
+
+    const invite = await prisma.projectInvite.findUnique({ where: { token: inviteToken } });
+
+    if (!invite) {
+      return res.status(404).json({ error: 'Invite not found' });
+    }
+
+    if (invite.usedAt) {
+      return res.json({ status: 'used', role: invite.role, expiresAt: invite.expiresAt });
+    }
+
+    if (invite.expiresAt && invite.expiresAt.getTime() < now.getTime()) {
+      return res.json({ status: 'expired', role: invite.role, expiresAt: invite.expiresAt });
+    }
+
+    return res.json({ status: 'valid', role: invite.role, expiresAt: invite.expiresAt });
+  } catch (error) {
+    console.error('Failed to check invite status', error);
+    return res.status(500).json({ error: 'Failed to check invite status' });
+  }
+});
+
 
 // POST /invites/accept-public — accept invite for a user that is not logged in yet.
 // This endpoint can create the user (if not exists) and will create Membership + return JWT token.
@@ -128,16 +156,20 @@ router.post('/accept-public', async (req, res) => {
 		const inviteToken = normalizeInviteToken(parsed.token);
     const now = new Date();
 
-    const invite = await prisma.projectInvite.findFirst({
-      where: {
-        token: inviteToken,
-        usedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-      },
+    const invite = await prisma.projectInvite.findUnique({
+      where: { token: inviteToken },
     });
 
     if (!invite) {
-      return res.status(404).json({ error: 'Invite not found or expired' });
+      return res.status(404).json({ error: 'Invite not found' });
+    }
+
+    if (invite.usedAt) {
+      return res.status(409).json({ error: 'Invite already used' });
+    }
+
+    if (invite.expiresAt && invite.expiresAt.getTime() < now.getTime()) {
+      return res.status(410).json({ error: 'Invite expired' });
     }
 
     // get or create user
@@ -222,6 +254,13 @@ router.post('/accept', requireAuth, async (req: AuthRequest, res) => {
     }
 
     if (invite.usedAt) {
+      if (invite.usedByUserId === req.user.id) {
+        return res.json({
+          ok: true,
+          projectId: invite.projectId,
+          role: invite.role,
+        });
+      }
       return res.status(409).json({ error: 'Invite already used' });
     }
 
