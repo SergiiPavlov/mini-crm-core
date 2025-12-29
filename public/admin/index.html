@@ -540,6 +540,7 @@
             <button type="button" class="btn-secondary" id="open-project-access" title="Доступ та інвайти">Доступ</button>
           </div>
           <div class="user-info" id="user-info">Не авторизовано</div>
+          <button type="button" class="btn-secondary" id="logout-btn" style="display:none;" title="Вийти з CRM">Вийти</button>
         </div>
       </header>
       <main>
@@ -556,8 +557,7 @@
             </div>
             <div class="login-actions">
               <button type="submit" id="login-btn">Увійти</button>
-              <button type="button" class="btn-secondary" id="logout-btn" style="display:none;">Вийти</button>
-            </div>
+</div>
             <div class="status" id="login-status"></div>
           </form>
         </div>
@@ -1850,6 +1850,7 @@ var dataCard = document.getElementById('data-card');
           if (!user) {
             userInfoEl.textContent = 'Не авторизовано';
             if (projectSwitcherEl) projectSwitcherEl.style.display = 'none';
+            if (logoutBtn) logoutBtn.style.display = 'none';
             currentProject = null;
             return;
           }
@@ -1863,6 +1864,7 @@ var dataCard = document.getElementById('data-card');
           if (projectSwitcherEl) {
             projectSwitcherEl.style.display = '';
           }
+          if (logoutBtn) logoutBtn.style.display = '';
         }
 
 
@@ -1928,6 +1930,11 @@ function showInviteCard(token) {
   inviteCard.style.display = '';
   var nt = normalizeInviteToken(token || '');
   if (inviteCardTokenInput) inviteCardTokenInput.value = nt || '';
+  // Hide token field when token is provided via URL (primary UX path)
+  try {
+    var tokenField = inviteCardTokenInput && inviteCardTokenInput.parentElement;
+    if (tokenField) tokenField.style.display = nt ? 'none' : '';
+  } catch (e) {}
 
   var authed = !!getToken();
   if (inviteCardAcceptAuthedBtn) {
@@ -1943,6 +1950,17 @@ function showInviteCard(token) {
     inviteCardStatus.textContent = '';
     inviteCardStatus.className = 'status';
   }
+
+  // Focus the most relevant control
+  setTimeout(function () {
+    try {
+      if (authed) {
+        if (inviteCardAcceptAuthedBtn) inviteCardAcceptAuthedBtn.focus();
+      } else {
+        if (inviteCardEmailInput) inviteCardEmailInput.focus();
+      }
+    } catch (e) {}
+  }, 0);
 }
 
 function hideInviteCard() {
@@ -1976,7 +1994,10 @@ function acceptInvitePublic(token) {
     .then(function (res) {
       if (!res.ok) {
         return safeJson(res).then(function (data) {
-          throw new Error((data && data.error) || 'Не вдалося прийняти інвайт');
+          var msg = (data && data.error) || 'Не вдалося прийняти інвайт';
+          var err = new Error(msg);
+          err.status = res.status;
+          throw err;
         });
       }
       return res.json();
@@ -2001,7 +2022,45 @@ function acceptInvitePublic(token) {
     })
     .catch(function (err) {
       console.error('Invite accept-public error', err);
-      setInviteStatus(err.message || 'Помилка прийняття інвайта', true);
+      var st = err && err.status;
+      if (st === 409) {
+        setInviteStatus('Посилання вже використано. Увійдіть, щоб продовжити.', true);
+        try {
+          var le = document.getElementById('email');
+          if (le && inviteCardEmailInput && inviteCardEmailInput.value) {
+            le.value = (inviteCardEmailInput.value || '').trim();
+          }
+        } catch (e) {}
+        hideInviteCard();
+        setStatus('Посилання запрошення вже використано. Будь ласка, увійдіть.', true);
+        return;
+      }
+      var msg = err && err.message ? err.message : 'Помилка прийняття інвайта';
+      if (st === 401) msg = 'Невірний email або пароль';
+      if (st === 404) msg = 'Посилання недійсне або не знайдено';
+      if (st === 410) msg = 'Термін дії запрошення минув';
+      setInviteStatus(msg, true);
+    });
+}
+
+function checkInviteStatus(token) {
+  token = normalizeInviteToken(token);
+  if (!token) return Promise.resolve(null);
+  return fetch(apiBase + '/invites/public/' + encodeURIComponent(token) + '/status', {
+    method: 'GET',
+    headers: { 'Accept': 'application/json' },
+  })
+    .then(function (res) {
+      if (!res.ok) {
+        var err = new Error('Invite status check failed');
+        err.status = res.status;
+        throw err;
+      }
+      return res.json();
+    })
+    .catch(function (err) {
+      console.warn('Invite status check error', err);
+      return { status: 'unknown', _errorStatus: err && err.status };
     });
 }
 
@@ -2015,7 +2074,10 @@ function acceptInviteAuthed(token) {
     .then(function (res) {
       if (!res.ok) {
         return safeJson(res).then(function (data) {
-          throw new Error((data && data.error) || 'Не вдалося прийняти інвайт');
+          var msg = (data && data.error) || 'Не вдалося прийняти інвайт';
+          var err = new Error(msg);
+          err.status = res.status;
+          throw err;
         });
       }
       return res.json();
@@ -2033,7 +2095,13 @@ function acceptInviteAuthed(token) {
     })
     .catch(function (err) {
       console.error('Invite accept (authed) error', err);
-      setInviteStatus(err.message || 'Помилка прийняття інвайта', true);
+      var st = err && err.status;
+      var msg = err && err.message ? err.message : 'Помилка прийняття інвайта';
+      if (st === 409) msg = 'Посилання вже використано або недоступне для цього користувача';
+      if (st === 404) msg = 'Посилання недійсне або не знайдено';
+      if (st === 410) msg = 'Термін дії запрошення минув';
+      if (st === 401) msg = 'Сесія прострочена. Увійдіть знову';
+      setInviteStatus(msg, true);
     });
 }
 
@@ -2313,10 +2381,13 @@ function acceptInviteAuthed(token) {
           })
             .then(function (res) {
               if (!res.ok) {
-                return safeJson(res).then(function (data) {
-                  throw new Error((data && data.error) || 'Не вдалося прийняти інвайт');
-                });
-              }
+        return safeJson(res).then(function (data) {
+          var msg = (data && data.error) || 'Не вдалося прийняти інвайт';
+          var err = new Error(msg);
+          err.status = res.status;
+          throw err;
+        });
+      }
               return res.json();
             })
             .then(function (data) {
@@ -3842,8 +3913,39 @@ tabs.forEach(function (btn) {
         logoutBtn.addEventListener('click', function () {
           setToken(null);
           setUserInfo(null);
-          dataCard.style.display = 'none';
-          logoutBtn.style.display = 'none';
+
+          // Security: clear any credentials left in forms. Browsers may keep autofill in-session;
+          // we explicitly reset and wipe values on logout.
+          try {
+            if (loginForm && typeof loginForm.reset === 'function') loginForm.reset();
+            if (inviteCardForm && typeof inviteCardForm.reset === 'function') inviteCardForm.reset();
+
+            var emailInput = document.getElementById('email');
+            var passwordInput = document.getElementById('password');
+            if (emailInput) emailInput.value = '';
+            if (passwordInput) passwordInput.value = '';
+
+            if (inviteCardEmailInput) inviteCardEmailInput.value = '';
+            if (inviteCardPasswordInput) inviteCardPasswordInput.value = '';
+          } catch (e) {}
+
+          // hide app content
+          if (dataCard) dataCard.style.display = 'none';
+          if (inviteCard) inviteCard.style.display = 'none';
+
+          // show login
+          if (loginCard) loginCard.style.display = '';
+
+          // hide logout button itself
+          if (logoutBtn) logoutBtn.style.display = 'none';
+
+          // drop invite param from URL to avoid confusing state after logout
+          try {
+            var url = new URL(window.location.href);
+            url.searchParams.delete('invite');
+            window.history.replaceState({}, document.title, url.toString());
+          } catch (e) {}
+
           setStatus('Вийшли з системи', false);
         });
 
@@ -4703,6 +4805,44 @@ caseModalClose.addEventListener('click', function () {
 var inviteTokenFromUrl = getInviteTokenFromUrl();
 if (inviteTokenFromUrl) {
   showInviteCard(inviteTokenFromUrl);
+
+  // Pre-check invite status so that reopening an already used link immediately redirects to login.
+  checkInviteStatus(inviteTokenFromUrl).then(function (st) {
+    if (!st) return;
+    if (st.status === 'used') {
+      clearInviteFromUrl();
+      var authed = !!getToken();
+      if (!authed) {
+        setInviteStatus('Посилання вже використано. Увійдіть, щоб продовжити.', true);
+        hideInviteCard();
+        setStatus('Посилання запрошення вже використано. Будь ласка, увійдіть.', true);
+      } else {
+        // If already logged in, do not force logout; just inform and continue.
+        setInviteStatus('Посилання вже використано. Ви вже увійшли.', true);
+        setStatus('Посилання запрошення вже використано. Ви вже увійшли.', true);
+        setTimeout(function () {
+          try { if (inviteCard) inviteCard.style.display = 'none'; } catch (e) {}
+        }, 600);
+      }
+      return;
+    }
+
+    if (st.status === 'expired') {
+      clearInviteFromUrl();
+      setInviteStatus('Термін дії запрошення минув', true);
+      hideInviteCard();
+      setStatus('Термін дії запрошення минув. Увійдіть або попросіть нове запрошення.', true);
+      return;
+    }
+
+    if (st.status === 'unknown' && st._errorStatus === 404) {
+      clearInviteFromUrl();
+      setInviteStatus('Посилання недійсне або не знайдено', true);
+      hideInviteCard();
+      setStatus('Посилання недійсне або не знайдено. Увійдіть або попросіть нове запрошення.', true);
+      return;
+    }
+  });
 
   if (inviteCardForm) {
     inviteCardForm.addEventListener('submit', function (e) {

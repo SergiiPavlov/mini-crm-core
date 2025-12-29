@@ -149,5 +149,27 @@ if [[ "${SMOKE_TEST_RATELIMIT:-0}" == "1" ]]; then
   [[ "$hit429" == "1" ]] || fail "RateLimit test did not observe HTTP 429. Either limiter is disabled or PUBLIC_SUBMIT_RL_MAX is too high."
   log "RateLimit: OK"
 fi
+
+# Optional: invite-link chain (create invite → accept-public → access /cases)
+if [[ "${SMOKE_INVITES:-0}" == "1" ]]; then
+  log "Invites: create invite + accept-public + /cases access"
+  INVITE_JSON="$(curl -sS -X POST "$BASE/invites"     -H "Authorization: Bearer $TOKEN"     -H "Content-Type: application/json"     -d '{"role":"admin","expiresInDays":7}')" || true
+
+  INVITE_TOKEN="$(json_get 'j.token || j.invite?.token || j.data?.token' <<<"$INVITE_JSON")"
+  [[ -n "$INVITE_TOKEN" ]] || fail "Invite create failed: token is empty. Response: $INVITE_JSON"
+
+  INVITE_EMAIL="smoke+invite-$(date +%s)-$$@example.com"
+  INVITE_PASSWORD="secret123"
+
+  ACCEPT_JSON="$(curl -sS -X POST "$BASE/invites/accept-public"     -H "Content-Type: application/json"     -d "{"token":"$INVITE_TOKEN","email":"$INVITE_EMAIL","password":"$INVITE_PASSWORD"}")" || true
+
+  ADMIN_TOKEN="$(json_get 'j.token || j.accessToken || j.jwt' <<<"$ACCEPT_JSON")"
+  [[ -n "$ADMIN_TOKEN" ]] || fail "Invite accept-public failed: token is empty. Response: $ACCEPT_JSON"
+
+  code="$(http_code "$BASE/cases" -H "Authorization: Bearer $ADMIN_TOKEN")"
+  [[ "$code" == "200" ]] || fail "Admin /cases failed (HTTP $code)"
+  log "Invites: OK (email=$INVITE_EMAIL)"
+fi
+
 log "Summary: base=$BASE slug=$SLUG formKey=feedback origin=$ORIGIN publicKey=${PUBLIC_KEY:0:8}…"
 printf "✅ SMOKE OK\n"

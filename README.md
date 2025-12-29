@@ -6,6 +6,13 @@
 - Start: `npm run dev`
 - Smoke: `npm run smoke` (supports `BASE`, `SMOKE_ORIGIN`, and test flags).
 
+Smoke flags:
+- `SMOKE_TEST_IDEMPOTENCY=1` — checks idempotent submit with `X-Request-Id`.
+- `SMOKE_TEST_VALIDATION=1` — checks 400 on invalid payload.
+- `SMOKE_TEST_RATELIMIT=1` — checks burst 429 on public submit.
+- `SMOKE_INVITES=1` — checks invite chain (create invite → accept-public → access `/cases`).
+
+
 Backend skeleton for the Mini CRM Core project.
 
 ## What is set up so far
@@ -121,6 +128,33 @@ Invites allow an owner/admin to onboard another global user into the current pro
   ```json
   { "token": "..." }
   ```
+
+- `POST /invites/accept-public` — accept invite token for a user that is not logged in yet (signup/login + membership).
+  Body:
+
+  ```json
+  { "token": "...", "email": "user@example.com", "password": "secret123" }
+  ```
+
+  Responses / errors:
+  - `200` — returns `{ token, user }` (JWT token is already scoped to the project + role)
+  - `401` — invalid credentials (when user exists and password is wrong)
+  - `404` — invite not found
+  - `409` — invite already used
+  - `410` — invite expired
+
+- `GET /invites/public/:token/status` — (public) check invite link state for the admin UI.
+  - `200` — returns `{ status: "valid"|"used"|"expired", role, expiresAt }`
+  - `404` — invite not found
+
+### Admin invite-link UX
+
+Open an invite link in admin UI:
+
+- `/admin/?invite=<TOKEN>`
+
+If the invite link is already used (`409`), the UI shows a message and navigates to the normal login screen.
+
 
 ## Contacts API (step 4)
 
