@@ -7,6 +7,7 @@ import { z, ZodError } from 'zod';
 import prisma from '../db/client';
 import { AuthRequest } from '../types/auth';
 import { requireAuth } from '../middleware/auth';
+import { normalizeEmail } from '../utils/normalizeEmail';
 
 const router = express.Router();
 
@@ -50,7 +51,10 @@ router.post('/register', async (req, res) => {
   try {
     const parsed = registerUserSchema.parse(req.body);
 
-    const existing = await prisma.user.findUnique({ where: { email: parsed.email } });
+    const email = parsed.email.trim();
+    const emailNormalized = normalizeEmail(email);
+
+    const existing = await prisma.user.findUnique({ where: { emailNormalized } });
     if (existing) {
       return res.status(409).json({ error: 'Email already registered' });
     }
@@ -58,7 +62,8 @@ router.post('/register', async (req, res) => {
     const passwordHash = await bcrypt.hash(parsed.password, 10);
     const user = await prisma.user.create({
       data: {
-        email: parsed.email,
+        email,
+        emailNormalized,
         password: passwordHash,
       },
     });
@@ -85,13 +90,14 @@ router.post('/bootstrap-owner', async (req, res) => {
     return res.status(400).json({ error: 'Invalid payload', details: parsed.error.issues });
   }
 
-  const email = parsed.data.email.trim().toLowerCase();
+  const email = parsed.data.email.trim();
+  const emailNormalized = normalizeEmail(email);
   const password = parsed.data.password;
   const projectSlug = parsed.data.projectSlug.trim().toLowerCase();
   const projectName = (parsed.data.projectName || projectSlug).trim();
 
   // Security: avoid "claiming" an existing user/project.
-  const existingUser = await prisma.user.findUnique({ where: { email } });
+  const existingUser = await prisma.user.findUnique({ where: { emailNormalized } });
   if (existingUser) {
     return res.status(409).json({ error: 'User already exists' });
   }
@@ -114,7 +120,9 @@ router.post('/bootstrap-owner', async (req, res) => {
 
   const passwordHash = await bcrypt.hash(password, 10);
   // Prisma `User` model stores the hashed password in the `password` field.
-  const user = await prisma.user.create({ data: { email, password: passwordHash } });
+  const user = await prisma.user.create({
+    data: { email, emailNormalized, password: passwordHash },
+  });
 
   await prisma.membership.create({
     data: { userId: user.id, projectId: project.id, role: 'owner' },
@@ -151,8 +159,11 @@ router.post('/register-owner', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(parsed.password, 10);
 
+    const email = parsed.email.trim();
+    const emailNormalized = normalizeEmail(email);
+
     const existingUser = await prisma.user.findUnique({
-      where: { email: parsed.email },
+      where: { emailNormalized },
       select: { id: true },
     });
 
@@ -163,7 +174,8 @@ router.post('/register-owner', async (req, res) => {
 
     const user = await prisma.user.create({
       data: {
-        email: parsed.email,
+        email,
+        emailNormalized,
         password: passwordHash,
       },
     });
@@ -219,8 +231,11 @@ router.post('/login', async (req, res) => {
   try {
     const parsed = loginSchema.parse(req.body);
 
+    // Normalize for consistent lookups and uniqueness.
+    const emailNormalized = normalizeEmail(parsed.email);
+
     const user = await prisma.user.findUnique({
-      where: { email: parsed.email },
+      where: { emailNormalized },
       include: {
         memberships: true,
       },

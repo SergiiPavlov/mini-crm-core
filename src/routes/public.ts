@@ -3,6 +3,7 @@ import { z, ZodError } from 'zod';
 import rateLimit from 'express-rate-limit';
 import prisma from '../db/client';
 import { sendNotificationMail } from '../services/mailer';
+import { normalizeEmailOptional } from '../utils/normalizeEmail';
 
 const router = express.Router();
 
@@ -203,6 +204,7 @@ const publicFeedbackSchema = z
     phone: z.string().trim().max(30).optional(),
     message: z.string().trim().max(2000),
     rating: z.coerce.number().min(1).max(5).optional(),
+    clientRequestId: z.string().trim().max(80).optional(),
     source: z.string().trim().max(100).optional(),
     __hp: z.string().optional(),
   })
@@ -384,7 +386,7 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       }
 
       const name = normalizeText(parsed.name);
-      const email = normalizeText(parsed.email);
+      const email = normalizeEmailOptional(parsed.email);
       const phone = normalizePhone(parsed.phone);
       const message = normalizeText(parsed.message);
       const source = normalizeText(parsed.source);
@@ -427,30 +429,47 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         }
       }
 
-      const contact = await prisma.contact.create({
-        data: {
-          projectId: project.id,
-          name: computeContactName(name, email, phone),
-          email: email || null,
-          phone: phone || null,
-          notes: message || null,
-        },
-      });
-
+      const contactEmail = normalizeEmailOptional(email);
 	      let leadCase: any = null;
-	      try {
-	        leadCase = await prisma.case.create({
-	          data: {
-            projectId: project.id,
-            contactId: contact.id,
-            publicFormId: publicForm ? publicForm.id : null,
-            clientRequestId: normalizedClientRequestId || null,
-            title: 'Новий лід з сайту',
-            description: message || null,
-            status: 'new',
-            source: source || 'widget',
-          },
-	        });
+      let contact: any = null;
+
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          // Reuse contact by email when possible to reduce duplicates.
+          const existingContact = contactEmail
+            ? await tx.contact.findFirst({ where: { projectId: project.id, email: contactEmail } })
+            : null;
+
+          const createdOrExistingContact = existingContact
+            ? existingContact
+            : await tx.contact.create({
+                data: {
+                  projectId: project.id,
+                  name: computeContactName(name, email, phone),
+                  email: contactEmail || null,
+                  phone: phone || null,
+                  notes: message || null,
+                },
+              });
+
+          const createdCase = await tx.case.create({
+            data: {
+              projectId: project.id,
+              contactId: createdOrExistingContact.id,
+              publicFormId: publicForm ? publicForm.id : null,
+              clientRequestId: normalizedClientRequestId || null,
+              title: 'Новий лід з сайту',
+              description: message || null,
+              status: 'new',
+              source: source || 'widget',
+            },
+          });
+
+          return { createdOrExistingContact, createdCase };
+        });
+
+        contact = result.createdOrExistingContact;
+        leadCase = result.createdCase;
       } catch (caseError: any) {
         if (normalizedClientRequestId && isPrismaUniqueConstraintError(caseError)) {
           const existing = await prisma.case.findFirst({
@@ -494,10 +513,7 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         });
       }
 
-      return res.status(201).json({
-        contact,
-        case: leadCase,
-      });
+      return res.status(201).json({ contact, case: leadCase });
     }
 
     // ----- DONATION -----
@@ -565,28 +581,10 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         }
       }
 
-      let contact: any = null;
+      const contactName = computeContactName(name, email, phone);
 
-      if (email) {
-        contact = await prisma.contact.findFirst({
-          where: {
-            projectId: project.id,
-            email,
-          },
-        });
-      }
-
-      if (!contact) {
-        contact = await prisma.contact.create({
-          data: {
-            projectId: project.id,
-            name: computeContactName(name, email, phone),
-            email: email || null,
-            phone: phone || null,
-            notes: message || null,
-          },
-        });
-      }
+      // IMPORTANT: create/reuse Contact inside the same transaction as Case/Transaction
+      // to avoid "orphan" contacts when Case creation fails.
 
       const donationDetailsParts: string[] = [];
       donationDetailsParts.push(`Сума: ${amount} UAH`);
@@ -605,6 +603,22 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
 
       try {
         const created = await prisma.$transaction(async (tx) => {
+          let contact = null as any;
+          if (email) {
+            contact = await tx.contact.findFirst({ where: { projectId: project.id, email } });
+          }
+          if (!contact) {
+            contact = await tx.contact.create({
+              data: {
+                projectId: project.id,
+                name: contactName,
+                email: email || null,
+                phone: phone || null,
+                notes: message || null,
+              },
+            });
+          }
+
           const c = await tx.case.create({
             data: {
               projectId: project.id,
@@ -632,11 +646,15 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
             },
           });
 
-          return { c, t };
+          return { contact, c, t };
         });
 
         donationCase = created.c;
         transaction = created.t;
+        // ensure response includes the used/created contact
+        // (kept in sync with other public submit handlers)
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const contact = created.contact;
       } catch (err: any) {
         if (normalizedClientRequestId && isPrismaUniqueConstraintError(err)) {
           const existingCase = await prisma.case.findFirst({
@@ -756,29 +774,6 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
           });
         }
       }
-      let contact: any = null;
-
-      if (email) {
-        contact = await prisma.contact.findFirst({
-          where: {
-            projectId: project.id,
-            email,
-          },
-        });
-      }
-
-      if (!contact) {
-        contact = await prisma.contact.create({
-          data: {
-            projectId: project.id,
-            name: computeContactName(name, email, phone),
-            email: email || null,
-            phone: phone || null,
-            notes: message || null,
-          },
-        });
-      }
-
       const detailsParts: string[] = [];
       if (service) detailsParts.push(`Послуга: ${service}`);
       if (date || time) {
@@ -788,20 +783,47 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       if (message) detailsParts.push(`Коментар: ${message}`);
       const details = detailsParts.join(' | ');
 
+      const contactName = computeContactName(name, email, phone);
+
       let bookingCase: any = null;
+      let contact: any = null;
       try {
-        bookingCase = await prisma.case.create({
-          data: {
-            projectId: project.id,
-            contactId: contact.id,
-            publicFormId: publicForm ? publicForm.id : null,
-            clientRequestId: normalizedClientRequestId || null,
-            title: 'Нове бронювання з сайту',
-            status: 'new',
-            source: source || 'booking-widget',
-            description: details || null,
-          },
+        const created = await prisma.$transaction(async (tx) => {
+          let contact: any = null;
+          if (email) {
+            contact = await tx.contact.findFirst({ where: { projectId: project.id, email } });
+          }
+
+          if (!contact) {
+            contact = await tx.contact.create({
+              data: {
+                projectId: project.id,
+                name: contactName,
+                email: email || null,
+                phone: phone || null,
+                notes: message || null,
+              },
+            });
+          }
+
+          const createdCase = await tx.case.create({
+            data: {
+              projectId: project.id,
+              contactId: contact.id,
+              publicFormId: publicForm ? publicForm.id : null,
+              clientRequestId: normalizedClientRequestId || null,
+              title: 'Нове бронювання з сайту',
+              status: 'new',
+              source: source || 'booking-widget',
+              description: details || null,
+            },
+          });
+
+          return { contact, createdCase };
         });
+
+        contact = created.contact;
+        bookingCase = created.createdCase;
       } catch (caseError: any) {
         if (normalizedClientRequestId && isPrismaUniqueConstraintError(caseError)) {
           const existing = await prisma.case.findFirst({
@@ -870,6 +892,7 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       const message = normalizeText(parsed.message);
       const source = normalizeText(parsed.source);
       const rating = typeof parsed.rating === 'number' ? parsed.rating : undefined;
+      const normalizedClientRequestId = normalizeClientRequestId(parsed.clientRequestId);
 
       const project = await prisma.project.findUnique({
         where: { id: projectGuard.id },
@@ -891,27 +914,14 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       if (!publicForm) {
         return res.status(410).json({ error: 'Form is disabled' });
       }
-let contact: any = null;
-
-      if (email) {
-        contact = await prisma.contact.findFirst({
-          where: {
-            projectId: project.id,
-            email,
-          },
+      if (normalizedClientRequestId) {
+        const existing = await prisma.case.findFirst({
+          where: { projectId: project.id, clientRequestId: normalizedClientRequestId },
+          include: { contact: true },
         });
-      }
-
-      if (!contact) {
-        contact = await prisma.contact.create({
-          data: {
-            projectId: project.id,
-            name: computeContactName(name, email, phone),
-            email: email || null,
-            phone: phone || null,
-            notes: null,
-          },
-        });
+        if (existing) {
+          return res.status(200).json({ contact: existing.contact, case: existing, idempotent: true });
+        }
       }
 
       const detailParts: string[] = [];
@@ -923,33 +933,49 @@ let contact: any = null;
       }
       const description = detailParts.join(' | ');
 
-      let feedbackCase: any = null;
       try {
-        feedbackCase = await prisma.case.create({
-          data: {
-            projectId: project.id,
-            contactId: contact.id,
-            publicFormId: publicForm ? publicForm.id : null,
-            clientRequestId: normalizedClientRequestId || null,
-            title: 'Новий відгук з сайту',
-            status: 'new',
-            source: source || 'feedback-widget',
-            description: description || null,
-          },
+        const { contact, feedbackCase } = await prisma.$transaction(async (tx) => {
+          let contact: any = null;
+          if (email) {
+            contact = await tx.contact.findFirst({ where: { projectId: project.id, email } });
+          }
+          if (!contact) {
+            contact = await tx.contact.create({
+              data: {
+                projectId: project.id,
+                name: computeContactName(name, email, phone),
+                email: email || null,
+                phone: phone || null,
+                notes: null,
+              },
+            });
+          }
+
+          const feedbackCase = await tx.case.create({
+            data: {
+              projectId: project.id,
+              contactId: contact.id,
+              publicFormId: publicForm ? publicForm.id : null,
+              clientRequestId: normalizedClientRequestId || null,
+              title: 'Новий відгук з сайту',
+              status: 'new',
+              source: source || 'feedback-widget',
+              description: description || null,
+            },
+          });
+
+          return { contact, feedbackCase };
         });
+
+        return res.status(200).json({ contact, case: feedbackCase, ok: true });
       } catch (caseError: any) {
         if (normalizedClientRequestId && isPrismaUniqueConstraintError(caseError)) {
           const existing = await prisma.case.findFirst({
             where: { projectId: project.id, clientRequestId: normalizedClientRequestId },
             include: { contact: true },
           });
-
           if (existing) {
-            return res.status(200).json({
-              contact: existing.contact,
-              case: existing,
-              idempotent: true,
-            });
+            return res.status(200).json({ contact: existing.contact, case: existing, idempotent: true });
           }
         }
         console.error('Error creating case for feedback', caseError);

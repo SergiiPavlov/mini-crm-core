@@ -7,6 +7,7 @@ import { z, ZodError } from 'zod';
 import prisma from '../db/client';
 import { requireAuth } from '../middleware/auth';
 import { AuthRequest } from '../types/auth';
+import { normalizeEmail } from '../utils/normalizeEmail';
 
 const router = express.Router();
 
@@ -25,7 +26,6 @@ function normalizeInviteToken(input: unknown): string {
     .replace(/^[<\s]+/, '')
     .replace(/[>\s]+$/, '');
 }
-
 
 const createInviteSchema = z
   .object({
@@ -167,13 +167,15 @@ router.get('/public/:token/status', async (req, res) => {
 // Payload: { token, email, password }
 router.post('/accept-public', async (req, res) => {
   try {
-		const parsed = acceptInvitePublicSchema.parse(req.body || {});
-		const inviteToken = normalizeInviteToken(parsed.token);
+			const parsed = acceptInvitePublicSchema.parse(req.body || {});
+			const inviteToken = normalizeInviteToken(parsed.token);
+			const email = parsed.email.trim();
+			const emailNormalized = normalizeEmail(email);
     const now = new Date();
 
     // Pre-check password if the user exists. We do this BEFORE consuming the invite,
     // so a wrong password doesn't burn a one-time link.
-    const existingUser = await prisma.user.findUnique({ where: { email: parsed.email } });
+	    const existingUser = await prisma.user.findUnique({ where: { emailNormalized } });
     if (existingUser) {
       const ok = await bcrypt.compare(parsed.password, (existingUser as any).password || '');
       if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
@@ -210,19 +212,19 @@ router.post('/accept-public', async (req, res) => {
       }
 
       // get or create user
-      let user = existingUser
-        ? await tx.user.findUnique({ where: { email: existingUser.email } })
-        : await tx.user.findUnique({ where: { email: parsed.email } });
+	      let user = existingUser
+	        ? await tx.user.findUnique({ where: { emailNormalized: (existingUser as any).emailNormalized } })
+	        : await tx.user.findUnique({ where: { emailNormalized } });
 
       if (!user) {
         const passwordHash = await bcrypt.hash(parsed.password, 10);
         try {
-          user = await tx.user.create({
-            data: { email: parsed.email, password: passwordHash },
-          });
+	          user = await tx.user.create({
+	            data: { email, emailNormalized, password: passwordHash },
+	          });
         } catch (e: any) {
           // Race: user might have been created concurrently. Re-read.
-          user = await tx.user.findUnique({ where: { email: parsed.email } });
+	          user = await tx.user.findUnique({ where: { emailNormalized } });
           if (!user) throw e;
         }
       }

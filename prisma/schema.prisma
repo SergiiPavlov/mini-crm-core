@@ -85,7 +85,11 @@ model ProjectAllowedOrigin {
 
 model User {
   id         Int      @id @default(autoincrement())
-  email      String   @unique
+  /// Original email as provided by the user (for display/audit).
+  email      String
+
+  /// Normalized email (trim + lowercase). Used for auth and uniqueness.
+  emailNormalized String @unique @map("email_normalized")
   password   String
   // "role" is per-project via Membership.role
 

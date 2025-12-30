@@ -65,6 +65,21 @@ Backend skeleton for the Mini CRM Core project.
 - Run `npm run prisma:generate` after changing `prisma/schema.prisma`.
 - For PostgreSQL, the connection string is taken from `DATABASE_URL` in `.env` via `prisma.config.ts`.
 
+### Case-insensitive user emails (CITEXT)
+
+At the DB level, `User.email` uses PostgreSQL `CITEXT` so **uniqueness is case-insensitive** (e.g. `Email@x.com` equals `email@x.com`).
+
+If you apply migrations on an existing database, pre-check for problematic duplicates:
+
+```sql
+SELECT lower(email) AS email_norm, COUNT(*)
+FROM "User"
+GROUP BY lower(email)
+HAVING COUNT(*) > 1;
+```
+
+If this query returns rows, you must merge/delete duplicates before running the CITEXT migration.
+
 ## Auth API
 
 Auth is **project-scoped via Membership**: a global `User` can be a member of multiple projects.
