@@ -3,6 +3,7 @@ import { z, ZodError } from 'zod';
 import rateLimit from 'express-rate-limit';
 import prisma from '../db/client';
 import { sendNotificationMail } from '../services/mailer';
+import { findOrCreateContact } from '../services/contacts';
 import { normalizeEmailOptional } from '../utils/normalizeEmail';
 
 const router = express.Router();
@@ -429,28 +430,16 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         }
       }
 
-      const contactEmail = normalizeEmailOptional(email);
-	      let leadCase: any = null;
+      let leadCase: any = null;
       let contact: any = null;
 
       try {
         const result = await prisma.$transaction(async (tx) => {
-          // Reuse contact by email when possible to reduce duplicates.
-          const existingContact = contactEmail
-            ? await tx.contact.findFirst({ where: { projectId: project.id, email: contactEmail } })
-            : null;
-
-          const createdOrExistingContact = existingContact
-            ? existingContact
-            : await tx.contact.create({
-                data: {
-                  projectId: project.id,
-                  name: computeContactName(name, email, phone),
-                  email: contactEmail || null,
-                  phone: phone || null,
-                  notes: message || null,
-                },
-              });
+          const createdOrExistingContact = await findOrCreateContact(
+            project.id,
+            { name, email, phone, notes: message || null },
+            tx
+          );
 
           const createdCase = await tx.case.create({
             data: {
@@ -526,7 +515,7 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       }
 
       const name = normalizeText(parsed.name);
-      const email = normalizeText(parsed.email);
+      const email = normalizeEmailOptional(parsed.email);
       const phone = normalizePhone(parsed.phone);
       const amount = parsed.amount;
       const message = normalizeText(parsed.message);
@@ -605,21 +594,11 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
 
       try {
         const created = await prisma.$transaction(async (tx) => {
-          let contact = null as any;
-          if (email) {
-            contact = await tx.contact.findFirst({ where: { projectId: project.id, email } });
-          }
-          if (!contact) {
-            contact = await tx.contact.create({
-              data: {
-                projectId: project.id,
-                name: contactName,
-                email: email || null,
-                phone: phone || null,
-                notes: message || null,
-              },
-            });
-          }
+          const contact = await findOrCreateContact(
+            project.id,
+            { name: contactName, email, phone, notes: message || null },
+            tx
+          );
 
           const c = await tx.case.create({
             data: {
@@ -731,7 +710,7 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       }
 
       const name = normalizeText(parsed.name);
-      const email = normalizeText(parsed.email);
+      const email = normalizeEmailOptional(parsed.email);
       const phone = normalizePhone(parsed.phone);
       const service = normalizeText(parsed.service);
       const date = normalizeText(parsed.date);
@@ -791,22 +770,11 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       let contact: any = null;
       try {
         const created = await prisma.$transaction(async (tx) => {
-          let contact: any = null;
-          if (email) {
-            contact = await tx.contact.findFirst({ where: { projectId: project.id, email } });
-          }
-
-          if (!contact) {
-            contact = await tx.contact.create({
-              data: {
-                projectId: project.id,
-                name: contactName,
-                email: email || null,
-                phone: phone || null,
-                notes: message || null,
-              },
-            });
-          }
+          const contact = await findOrCreateContact(
+            project.id,
+            { name: contactName, email, phone, notes: message || null },
+            tx
+          );
 
           const createdCase = await tx.case.create({
             data: {
@@ -925,44 +893,15 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         }
       }
 
-      const contactName = computeContactName(name) || 'Anonymous';
-      const contactEmail = normalizeEmailOptional(email);
-      const contactPhone = normalizeText(phone);
+            const safeName = normalizeText(name) || 'Anonymous';
+      const phoneNormalized = normalizePhone(phone);
 
       const { contact, feedbackCase } = await prisma.$transaction(async (tx) => {
-        // Best-effort reuse of contact by email/phone.
-        let contact = null as any;
-
-        if (contactEmail) {
-          contact = await tx.contact.findFirst({
-            where: { projectId: project.id, email: contactEmail },
-          });
-        }
-
-        if (!contact && contactPhone) {
-          contact = await tx.contact.findFirst({
-            where: { projectId: project.id, phone: contactPhone },
-          });
-        }
-
-        if (!contact) {
-          contact = await tx.contact.create({
-            data: {
-              projectId: project.id,
-              name: contactName,
-              email: contactEmail || null,
-              phone: contactPhone || null,
-            },
-          });
-        } else {
-          const data: any = {};
-          if (!contact.name && contactName) data.name = contactName;
-          if (!contact.email && contactEmail) data.email = contactEmail;
-          if (!contact.phone && contactPhone) data.phone = contactPhone;
-          if (Object.keys(data).length) {
-            contact = await tx.contact.update({ where: { id: contact.id }, data });
-          }
-        }
+        const contact = await findOrCreateContact(
+          project.id,
+          { name: safeName, email, phone: phoneNormalized || phone, notes: null },
+          tx
+        );
 
         const parts: string[] = [];
         if (typeof rating === 'number') parts.push(`Rating: ${rating}/5`);
