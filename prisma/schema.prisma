@@ -138,19 +138,30 @@ model ProjectInvite {
 }
 
 model Contact {
-  id         Int      @id @default(autoincrement())
-  projectId  Int
-  project    Project  @relation(fields: [projectId], references: [id])
-  name       String
-  email      String?
-  phone      String?
-  notes         String?
-  cases         Case[]
+  id        Int     @id @default(autoincrement())
+  projectId Int
+  project   Project @relation(fields: [projectId], references: [id])
+  name      String
+
+  /// Raw values (for display/audit)
+  email String?
+  phone String?
+
+  /// Normalized values (used for lookup + de-dup within a project)
+  emailNormalized String? @map("email_normalized")
+  phoneNormalized String? @map("phone_normalized")
+
+  notes        String?
+  cases        Case[]
   transactions Transaction[]
-  createdAt     DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@unique([id, projectId])
+  @@unique([projectId, emailNormalized])
+  @@unique([projectId, phoneNormalized])
+  @@index([projectId, emailNormalized])
+  @@index([projectId, phoneNormalized])
 }
 
 model Case {

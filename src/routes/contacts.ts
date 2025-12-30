@@ -3,6 +3,8 @@ import { z, ZodError } from 'zod';
 import prisma from '../db/client';
 import { requireAuth } from '../middleware/auth';
 import { AuthRequest } from '../types/auth';
+import { normalizeEmailOptional } from '../utils/normalizeEmail';
+import { normalizePhoneOptional } from '../utils/normalizePhone';
 
 const router = express.Router();
 
@@ -69,12 +71,17 @@ router.post('/', requireAuth, async (req: AuthRequest, res) => {
 
     const safeName = (name && name.trim()) || (email && email.trim()) || (phone && phone.trim()) || 'Unknown';
 
+    const emailNormalized = normalizeEmailOptional(email);
+    const phoneNormalized = normalizePhoneOptional(phone);
+
     const contact = await prisma.contact.create({
       data: {
         projectId,
         name: safeName,
         email: email || null,
         phone: phone || null,
+        emailNormalized: emailNormalized || null,
+        phoneNormalized: phoneNormalized || null,
         notes: notes || null,
       },
     });
@@ -110,6 +117,9 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res) => {
 
     const data = updateContactSchema.parse(req.body);
 
+    const emailNormalized = data.email !== undefined ? normalizeEmailOptional(data.email) : undefined;
+    const phoneNormalized = data.phone !== undefined ? normalizePhoneOptional(data.phone) : undefined;
+
     const contact = await prisma.contact.update({
       where: {
         id_projectId: {
@@ -117,7 +127,11 @@ router.patch('/:id', requireAuth, async (req: AuthRequest, res) => {
           projectId,
         },
       },
-      data,
+      data: {
+        ...data,
+        ...(emailNormalized !== undefined ? { emailNormalized: emailNormalized || null } : {}),
+        ...(phoneNormalized !== undefined ? { phoneNormalized: phoneNormalized || null } : {}),
+      },
     });
 
     return res.json(contact);
