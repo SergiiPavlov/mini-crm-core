@@ -601,6 +601,8 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       let donationCase: any = null;
       let transaction: any = null;
 
+    let contact: any = null;
+
       try {
         const created = await prisma.$transaction(async (tx) => {
           let contact = null as any;
@@ -654,7 +656,7 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         // ensure response includes the used/created contact
         // (kept in sync with other public submit handlers)
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        const contact = created.contact;
+        contact = created.contact;
       } catch (err: any) {
         if (normalizedClientRequestId && isPrismaUniqueConstraintError(err)) {
           const existingCase = await prisma.case.findFirst({
@@ -877,22 +879,16 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       });
     }
 
-    // ----- FEEDBACK -----
+    // -
     if (formKey === 'feedback') {
-      const parsed = publicFeedbackSchema.parse(req.body);
-
-      if (parsed.__hp && parsed.__hp.trim().length > 0) {
-        console.warn('Honeypot (feedback) triggered for project', projectSlug);
-        return res.status(202).json({ received: true });
+      const parsed = publicFeedbackSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res
+          .status(400)
+          .json({ error: 'Validation error', details: parsed.error.errors });
       }
 
-      const name = normalizeText(parsed.name);
-      const email = normalizeText(parsed.email);
-      const phone = normalizePhone(parsed.phone);
-      const message = normalizeText(parsed.message);
-      const source = normalizeText(parsed.source);
-      const rating = typeof parsed.rating === 'number' ? parsed.rating : undefined;
-      const normalizedClientRequestId = normalizeClientRequestId(parsed.clientRequestId);
+      const { name, email, phone, message, rating } = parsed.data;
 
       const project = await prisma.project.findUnique({
         where: { id: projectGuard.id },
@@ -910,108 +906,113 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
         },
       });
 
-      
       if (!publicForm) {
         return res.status(410).json({ error: 'Form is disabled' });
       }
+
+      // Idempotency (optional): if we already processed this clientRequestId, return the same response.
       if (normalizedClientRequestId) {
         const existing = await prisma.case.findFirst({
-          where: { projectId: project.id, clientRequestId: normalizedClientRequestId },
+          where: {
+            projectId: project.id,
+            clientRequestId: normalizedClientRequestId,
+          },
           include: { contact: true },
         });
+
         if (existing) {
-          return res.status(200).json({ contact: existing.contact, case: existing, idempotent: true });
+          return res.status(200).json({ contact: existing.contact, case: existing });
         }
       }
 
-      const detailParts: string[] = [];
-      if (typeof rating === 'number' && !Number.isNaN(rating)) {
-        detailParts.push(`Оцінка: ${rating}/5`);
-      }
-      if (message) {
-        detailParts.push(`Відгук: ${message}`);
-      }
-      const description = detailParts.join(' | ');
+      const contactName = computeContactName(name) || 'Anonymous';
+      const contactEmail = normalizeEmailOptional(email);
+      const contactPhone = normalizeText(phone);
 
-      try {
-        const { contact, feedbackCase } = await prisma.$transaction(async (tx) => {
-          let contact: any = null;
-          if (email) {
-            contact = await tx.contact.findFirst({ where: { projectId: project.id, email } });
-          }
-          if (!contact) {
-            contact = await tx.contact.create({
-              data: {
-                projectId: project.id,
-                name: computeContactName(name, email, phone),
-                email: email || null,
-                phone: phone || null,
-                notes: null,
-              },
-            });
-          }
+      const { contact, feedbackCase } = await prisma.$transaction(async (tx) => {
+        // Best-effort reuse of contact by email/phone.
+        let contact = null as any;
 
-          const feedbackCase = await tx.case.create({
+        if (contactEmail) {
+          contact = await tx.contact.findFirst({
+            where: { projectId: project.id, email: contactEmail },
+          });
+        }
+
+        if (!contact && contactPhone) {
+          contact = await tx.contact.findFirst({
+            where: { projectId: project.id, phone: contactPhone },
+          });
+        }
+
+        if (!contact) {
+          contact = await tx.contact.create({
             data: {
               projectId: project.id,
-              contactId: contact.id,
-              publicFormId: publicForm ? publicForm.id : null,
-              clientRequestId: normalizedClientRequestId || null,
-              title: 'Новий відгук з сайту',
-              status: 'new',
-              source: source || 'feedback-widget',
-              description: description || null,
+              name: contactName,
+              email: contactEmail || null,
+              phone: contactPhone || null,
             },
           });
-
-          return { contact, feedbackCase };
-        });
-
-        return res.status(200).json({ contact, case: feedbackCase, ok: true });
-      } catch (caseError: any) {
-        if (normalizedClientRequestId && isPrismaUniqueConstraintError(caseError)) {
-          const existing = await prisma.case.findFirst({
-            where: { projectId: project.id, clientRequestId: normalizedClientRequestId },
-            include: { contact: true },
-          });
-          if (existing) {
-            return res.status(200).json({ contact: existing.contact, case: existing, idempotent: true });
+        } else {
+          const data: any = {};
+          if (!contact.name && contactName) data.name = contactName;
+          if (!contact.email && contactEmail) data.email = contactEmail;
+          if (!contact.phone && contactPhone) data.phone = contactPhone;
+          if (Object.keys(data).length) {
+            contact = await tx.contact.update({ where: { id: contact.id }, data });
           }
         }
-        console.error('Error creating case for feedback', caseError);
-        return res.status(500).json({ error: 'Failed to create case' });
-      }
+
+        const parts: string[] = [];
+        if (typeof rating === 'number') parts.push(`Rating: ${rating}/5`);
+        if (message) parts.push(message);
+
+        const feedbackCase = await tx.case.create({
+          data: {
+            projectId: project.id,
+            publicFormId: publicForm.id,
+            contactId: contact.id,
+            title: 'Public feedback',
+            status: 'new',
+            source: 'public:feedback',
+            description: parts.join('\n\n') || null,
+            clientRequestId: normalizedClientRequestId || null,
+          },
+        });
+
+        return { contact, feedbackCase };
+      });
 
       const notifCfg = getNotificationConfig(project);
       if (!isSmokeRequest && notifCfg.notifyOnFeedback && notifCfg.emails.length) {
-        const subject = `Новий відгук — ${project.name}`;
+        const subject = `[${project.name}] Feedback: ${publicForm.title}`;
         const lines: string[] = [];
-        if (name) lines.push(`Ім'я: ${name}`);
-        if (email) lines.push(`Email: ${email}`);
-        if (phone) lines.push(`Телефон: ${phone}`);
-        if (typeof rating === 'number' && !Number.isNaN(rating)) {
-          lines.push(`Оцінка: ${rating}/5`);
+        lines.push(`Project: ${project.name} (${project.slug})`);
+        lines.push(`Form: ${publicForm.title} (${publicForm.formKey})`);
+        if (contact?.name) lines.push(`Name: ${contact.name}`);
+        if (contact?.email) lines.push(`Email: ${contact.email}`);
+        if (contact?.phone) lines.push(`Phone: ${contact.phone}`);
+        if (typeof rating === 'number') lines.push(`Rating: ${rating}/5`);
+        if (message) {
+          lines.push('');
+          lines.push('Message:');
+          lines.push(message);
         }
-        if (message) lines.push(`Відгук: ${message}`);
-        if (source) lines.push(`Джерело: ${source}`);
-        if (feedbackCase && feedbackCase.id) {
-          lines.push(`Case ID: ${feedbackCase.id}`);
-        }
-        const text = lines.join('\n');
+        lines.push('');
+        lines.push(`Case ID: ${feedbackCase.id}`);
+
         await sendNotificationMail({
+          to: notifCfg.emails,
           kind: 'feedback',
           projectName: project.name,
           projectSlug: project.slug,
-          to: notifCfg.emails,
           subject,
-          text,
+            text: lines.join('\n'),
         });
       }
 
-      return res.status(201).json({
-        contact,
-        case: feedbackCase,
-      });
+      return res.status(201).json({ contact, case: feedbackCase });
     }
 
     return res.status(404).json({ error: 'Unknown public form' });
