@@ -4,7 +4,6 @@ import rateLimit from 'express-rate-limit';
 import prisma from '../db/client';
 import { sendNotificationMail } from '../services/mailer';
 import { findOrCreateContact } from '../services/contacts';
-import { normalizeEmailOptional } from '../utils/normalizeEmail';
 
 const router = express.Router();
 
@@ -387,8 +386,8 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       }
 
       const name = normalizeText(parsed.name);
-      const email = normalizeEmailOptional(parsed.email);
-      const phone = normalizePhone(parsed.phone);
+      const email = normalizeText(parsed.email);
+      const phone = normalizeText(parsed.phone);
       const message = normalizeText(parsed.message);
       const source = normalizeText(parsed.source);
 
@@ -515,8 +514,8 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       }
 
       const name = normalizeText(parsed.name);
-      const email = normalizeEmailOptional(parsed.email);
-      const phone = normalizePhone(parsed.phone);
+      const email = normalizeText(parsed.email);
+      const phone = normalizeText(parsed.phone);
       const amount = parsed.amount;
       const message = normalizeText(parsed.message);
       const source = normalizeText(parsed.source);
@@ -710,8 +709,8 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       }
 
       const name = normalizeText(parsed.name);
-      const email = normalizeEmailOptional(parsed.email);
-      const phone = normalizePhone(parsed.phone);
+      const email = normalizeText(parsed.email);
+      const phone = normalizeText(parsed.phone);
       const service = normalizeText(parsed.service);
       const date = normalizeText(parsed.date);
       const time = normalizeText(parsed.time);
@@ -894,12 +893,10 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       }
 
             const safeName = normalizeText(name) || 'Anonymous';
-      const phoneNormalized = normalizePhone(phone);
-
       const { contact, feedbackCase } = await prisma.$transaction(async (tx) => {
         const contact = await findOrCreateContact(
           project.id,
-          { name: safeName, email, phone: phoneNormalized || phone, notes: null },
+          { name: safeName, email, phone, notes: null },
           tx
         );
 
