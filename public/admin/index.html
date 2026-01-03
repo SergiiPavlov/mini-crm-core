@@ -829,6 +829,30 @@
             </div>
 
             <div class="card" style="margin-top:12px; padding:12px;">
+              <div class="muted" style="margin-bottom:8px;">Учасники проєкту (Membership)</div>
+              <div class="muted" style="margin-bottom:8px;">Owner може змінювати ролі та видаляти учасників. Viewer/Admin можуть лише переглядати.</div>
+              <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                <button type="button" class="btn btn-secondary" id="integration-refresh-members">Refresh members</button>
+                <div class="muted" id="integration-members-status" style="margin-left:4px;"></div>
+              </div>
+              <div class="table-wrap" style="margin-top:10px;">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Email</th>
+                      <th>Role</th>
+                      <th>Added</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody id="integration-members-tbody">
+                    <tr><td colspan="4" class="muted">Немає даних</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="card" style="margin-top:12px; padding:12px;">
               <div class="muted" style="margin-bottom:8px;">Public forms (widgets) — керування активністю</div>
               <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
                 <button type="button" class="btn btn-secondary" id="integration-seed-public-forms">Seed default forms</button>
@@ -1817,6 +1841,11 @@ var dataCard = document.getElementById('data-card');
         var integrationPublicFormsStatusEl = document.getElementById('integration-public-forms-status');
         var integrationPublicFormsTbody = document.getElementById('integration-public-forms-tbody');
 
+        // Integration: members (P1.1)
+        var integrationRefreshMembersBtn = document.getElementById('integration-refresh-members');
+        var integrationMembersStatusEl = document.getElementById('integration-members-status');
+        var integrationMembersTbody = document.getElementById('integration-members-tbody');
+
         var caseModalBackdrop = document.getElementById('case-modal-backdrop');
         var caseModalClose = document.getElementById('case-modal-close');
         var caseModalCancel = document.getElementById('case-modal-cancel');
@@ -1873,6 +1902,10 @@ var dataCard = document.getElementById('data-card');
         var currentCaseTasks = [];
         var currentCaseTransactions = [];
 
+        // Current authenticated user (from /auth/me). Used by Integration helpers.
+        // Mirrors backend AuthUser shape.
+        var currentUser = null;
+
 
 
         function setStatus(message, isError) {
@@ -1883,12 +1916,16 @@ var dataCard = document.getElementById('data-card');
         
         function setUserInfo(user) {
           if (!user) {
+            currentUser = null;
             userInfoEl.textContent = 'Не авторизовано';
             if (projectSwitcherEl) projectSwitcherEl.style.display = 'none';
             if (logoutBtn) logoutBtn.style.display = 'none';
             currentProject = null;
             return;
           }
+
+          // keep global reference for other UI sections (e.g., Membership management)
+          currentUser = user;
           var projectLabel = currentProject && (currentProject.name || currentProject.slug)
             ? (currentProject.name || currentProject.slug)
             : ('#' + user.projectId);
@@ -3561,6 +3598,154 @@ function loadData() {
             .join('');
         }
 
+        function setMembersStatus(msg, isError) {
+          if (!integrationMembersStatusEl) return;
+          integrationMembersStatusEl.textContent = msg || '';
+          integrationMembersStatusEl.style.color = isError ? '#b91c1c' : '#6b7280';
+        }
+
+        function renderMembersTable(members) {
+          if (!integrationMembersTbody) return;
+          if (!Array.isArray(members) || members.length === 0) {
+            integrationMembersTbody.innerHTML = '<tr><td colspan="4" class="muted">Порожньо</td></tr>';
+            return;
+          }
+
+          var isOwner = !!(currentUser && currentUser.role === 'owner');
+          var isAdmin = !!(currentUser && currentUser.role === 'admin');
+
+          integrationMembersTbody.innerHTML = members
+            .map(function (m) {
+              var created = m.createdAt ? new Date(m.createdAt).toLocaleString() : '';
+
+              var roleCell;
+              if (isOwner) {
+                roleCell = (
+                  '<select class="form-control member-role" data-id="' + m.id + '" style="max-width:160px;">' +
+                    ['owner','admin','viewer'].map(function (r) {
+                      var sel = m.role === r ? ' selected' : '';
+                      return '<option value="' + r + '"' + sel + '>' + r + '</option>';
+                    }).join('') +
+                  '</select>'
+                );
+              } else {
+                roleCell = '<span class="pill" style="background:#f3f4f6; color:#374151;">' + escapeHtml(m.role) + '</span>';
+              }
+
+              var actions = '';
+              // Owner can remove anyone; Admin can remove only viewers.
+              if (isOwner || (isAdmin && m.role === 'viewer')) {
+                actions = '<button type="button" class="btn btn-sm btn-primary btn-ghost member-del" data-id="' + m.id + '">Remove</button>';
+              }
+
+return (
+                '<tr data-member-id="' + m.id + '" data-member-role="' + escapeHtml(m.role) + '">' +
+                  '<td><code>' + escapeHtml(m.email || '') + '</code></td>' +
+                  '<td>' + roleCell + '</td>' +
+                  '<td class="muted">' + escapeHtml(created) + '</td>' +
+                  '<td style="text-align:right;">' + actions + '</td>' +
+                '</tr>'
+              );
+            })
+            .join('');
+        }
+
+        function loadMembers() {
+          setMembersStatus('Loading...', false);
+          return authedFetch('/projects/current/members')
+            .then(function (res) {
+              if (!res.ok) {
+                return safeJson(res).then(function (d) {
+                  var msg = (d && d.error) ? d.error : 'Failed to load members';
+                  var err = new Error(msg);
+                  err.status = res.status;
+                  throw err;
+                });
+              }
+              return res.json();
+            })
+            .then(function (data) {
+              renderMembersTable(data);
+              // Make permissions visible: users often don't notice role differences
+              // unless controls disappear. Keep a subtle read-only hint for non-owners.
+              if (currentUser && currentUser.role && currentUser.role !== 'owner') {
+                setMembersStatus('Read-only: only the Owner can change roles or remove members (your role: ' + currentUser.role + ')', false);
+              } else {
+                setMembersStatus('', false);
+              }
+              return data;
+            })
+            .catch(function (err) {
+              console.error('Members load failed', err);
+              setMembersStatus('Failed to load members', true);
+            });
+        }
+
+        function updateMemberRole(memberId, role) {
+          setMembersStatus('Saving...', false);
+          return authedFetch('/projects/current/members/' + encodeURIComponent(memberId), {
+            method: 'PATCH',
+            body: JSON.stringify({ role: role }),
+          })
+            .then(function (res) {
+              return safeJson(res).then(function (d) {
+                if (!res.ok) {
+                  var msg = (d && d.error) ? d.error : 'Failed to update role';
+                  var err = new Error(msg);
+                  err.status = res.status;
+                  throw err;
+                }
+                return d;
+              });
+            })
+            .then(function (data) {
+              if (data && data.token) {
+                try { localStorage.setItem('token', data.token); } catch (e) {}
+                // Update cached user role so UI reflects permissions.
+                if (currentUser) currentUser.role = role;
+              }
+              setMembersStatus('Saved', false);
+              setTimeout(function () { setMembersStatus('', false); }, 900);
+              return loadMembers();
+            })
+            .catch(function (err) {
+              console.error('Member role update failed', err);
+              var msg = err && err.message ? err.message : 'Failed to update role';
+              setMembersStatus(msg, true);
+              return loadMembers();
+            });
+        }
+
+        function removeMember(memberId) {
+          if (!confirm('Remove this member from the project?')) return Promise.resolve();
+          setMembersStatus('Removing...', false);
+          return authedFetch('/projects/current/members/' + encodeURIComponent(memberId), {
+            method: 'DELETE',
+          })
+            .then(function (res) {
+              return safeJson(res).then(function (d) {
+                if (!res.ok) {
+                  var msg = (d && d.error) ? d.error : 'Failed to remove member';
+                  var err = new Error(msg);
+                  err.status = res.status;
+                  throw err;
+                }
+                return d;
+              });
+            })
+            .then(function () {
+              setMembersStatus('Removed', false);
+              setTimeout(function () { setMembersStatus('', false); }, 900);
+              return loadMembers();
+            })
+            .catch(function (err) {
+              console.error('Member remove failed', err);
+              var msg = err && err.message ? err.message : 'Failed to remove member';
+              setMembersStatus(msg, true);
+              return loadMembers();
+            });
+        }
+
         function loadIntegration() {
           return authedFetch('/projects/current/integration')
             .then(function (res) {
@@ -3582,6 +3767,7 @@ function loadData() {
 
               // Also load forms list for quick enable/disable testing
               loadIntegrationPublicForms();
+              loadMembers();
             })
             .catch(function (err) {
               console.error('Integration load failed', err);
@@ -3649,6 +3835,57 @@ if (copyCurlBtn) {
                 if (refreshIntegrationBtn) {
           refreshIntegrationBtn.addEventListener('click', function () {
             loadIntegration();
+          });
+        }
+
+        if (integrationRefreshMembersBtn) {
+          integrationRefreshMembersBtn.addEventListener('click', function () {
+            loadMembers();
+          });
+        }
+
+        if (integrationMembersTbody) {
+          integrationMembersTbody.addEventListener('change', function (e) {
+            var t = e && e.target;
+            if (!t || !t.classList || !t.classList.contains('member-role')) return;
+
+            // UI guard (backend enforces too): only Owner can change roles.
+            if (!currentUser || currentUser.role !== 'owner') {
+              setMembersStatus('Forbidden: only the Owner can change roles', true);
+              // Re-sync UI state from server.
+              loadMembers();
+              return;
+            }
+
+            var id = t.getAttribute('data-id');
+            var role = t.value;
+            if (!id) return;
+            updateMemberRole(id, role);
+          });
+
+          integrationMembersTbody.addEventListener('click', function (e) {
+            var t = e && e.target;
+            if (!t || !t.classList || !t.classList.contains('member-del')) return;
+
+            // UI guard (backend enforces too): Owner can remove anyone; Admin can remove only viewers.
+            if (!currentUser) {
+              setMembersStatus('Forbidden: unauthorized', true);
+              loadMembers();
+              return;
+            }
+            if (currentUser.role !== 'owner') {
+              // Admin is allowed to remove only viewers.
+              var tr = t.closest ? t.closest('tr') : null;
+              var targetRole = tr ? tr.getAttribute('data-member-role') : null;
+              if (!(currentUser.role === 'admin' && targetRole === 'viewer')) {
+                setMembersStatus('Forbidden: you can remove only viewers', true);
+                loadMembers();
+                return;
+              }
+            }
+var id = t.getAttribute('data-id');
+            if (!id) return;
+            removeMember(id);
           });
         }
 

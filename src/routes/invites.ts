@@ -29,7 +29,7 @@ function normalizeInviteToken(input: unknown): string {
 
 const createInviteSchema = z
   .object({
-    role: z.enum(['owner', 'admin', 'viewer']).optional().default('admin'),
+    role: z.enum(['admin', 'viewer']).optional().default('admin'),
     // Back-compat: older clients used `expiresInDays`.
     expiresInDays: z.number().int().positive().max(365).optional(),
     // Newer clients (and our docs/scripts) use `ttlHours` for more control.

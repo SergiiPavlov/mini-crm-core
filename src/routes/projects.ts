@@ -15,6 +15,8 @@ function signToken(payload: { userId: number; email: string; role: string; proje
 
 const router = express.Router();
 
+const MembershipRoleSchema = z.enum(['owner', 'admin', 'viewer']);
+
 function requireRole(req: AuthRequest, res: express.Response, roles: Array<'owner' | 'admin' | 'viewer'>) {
   const user = req.user;
   if (!user) {
@@ -642,6 +644,152 @@ router.delete('/current/allowed-origins/:id', requireAuth, async (req: AuthReque
   } catch (error) {
     console.error('Failed to delete allowed origin', error);
     return res.status(500).json({ error: 'Failed to delete allowed origin' });
+  }
+});
+
+// --- Membership management (P1.1) ---
+router.get('/current/members', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    const user = req.user;
+    if (!user || !user.projectId) {
+      return res.status(403).json({ error: 'Project context is required' });
+    }
+
+    // Any authenticated member can view the list.
+    const members = await prisma.membership.findMany({
+      where: { projectId: user.projectId },
+      include: {
+        user: { select: { id: true, email: true } },
+      },
+      orderBy: [{ role: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    return res.json(
+      members.map((m) => ({
+        id: m.id,
+        userId: m.userId,
+        email: m.user.email,
+        role: m.role,
+        createdAt: m.createdAt,
+      }))
+    );
+  } catch (error) {
+    console.error('Failed to list members', error);
+    return res.status(500).json({ error: 'Failed to list members' });
+  }
+});
+
+router.patch('/current/members/:id', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (!requireRole(req, res, ['owner'])) return;
+    const user = req.user;
+    if (!user || !user.projectId) {
+      return res.status(403).json({ error: 'Project context is required' });
+    }
+
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid member id' });
+    }
+
+    const bodySchema = z.object({ role: MembershipRoleSchema });
+    const { role } = bodySchema.parse(req.body);
+
+    const target = await prisma.membership.findFirst({
+      where: { id, projectId: user.projectId },
+      include: { user: { select: { id: true, email: true } } },
+    });
+
+    if (!target) {
+      return res.status(404).json({ error: 'Member not found' });
+    }
+
+    // Prevent removing the last owner role via role change.
+    if (target.role === 'owner' && role !== 'owner') {
+      const ownersCount = await prisma.membership.count({
+        where: { projectId: user.projectId, role: 'owner' },
+      });
+      if (ownersCount <= 1) {
+        return res.status(409).json({ error: 'Cannot downgrade the last owner' });
+      }
+    }
+
+    const updated = await prisma.membership.update({
+      where: { id },
+      data: { role },
+      include: { user: { select: { id: true, email: true } } },
+    });
+
+    // If the updated membership is the current user, re-issue JWT with new role.
+    let token: string | undefined;
+    if (updated.userId === user.id) {
+      token = signToken({
+        userId: user.id,
+        email: user.email,
+        role: updated.role,
+        projectId: user.projectId,
+      });
+    }
+
+    return res.json({
+      member: {
+        id: updated.id,
+        userId: updated.userId,
+        email: updated.user.email,
+        role: updated.role,
+        createdAt: updated.createdAt,
+      },
+      token: token || null,
+    });
+  } catch (error: any) {
+    if (error instanceof ZodError) {
+      return res.status(400).json({ error: 'Invalid payload', details: error.flatten() });
+    }
+    console.error('Failed to update member role', error);
+    return res.status(500).json({ error: 'Failed to update member role' });
+  }
+});
+
+router.delete('/current/members/:id', requireAuth, async (req: AuthRequest, res) => {
+  try {
+    if (!requireRole(req, res, ['owner','admin'])) return;
+    const user = req.user;
+    if (!user || !user.projectId) {
+      return res.status(403).json({ error: 'Project context is required' });
+    }
+
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({ error: 'Invalid member id' });
+    }
+
+    const target = await prisma.membership.findFirst({ where: { id, projectId: user.projectId } });
+    if (!target) {
+      return res.status(404).json({ error: 'Member not found' });
+    }
+
+    // Admin is allowed to remove ONLY viewers. Owner can remove anyone (except last owner).
+    if (user.role === 'admin') {
+      if (target.role !== 'viewer') {
+        return res.status(403).json({ error: 'Admins can remove only viewers' });
+      }
+    }
+
+    // Prevent deleting the last owner.
+    if (target.role === 'owner') {
+      const ownersCount = await prisma.membership.count({
+        where: { projectId: user.projectId, role: 'owner' },
+      });
+      if (ownersCount <= 1) {
+        return res.status(409).json({ error: 'Cannot remove the last owner' });
+      }
+    }
+
+    await prisma.membership.delete({ where: { id } });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('Failed to remove member', error);
+    return res.status(500).json({ error: 'Failed to remove member' });
   }
 });
 
