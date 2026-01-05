@@ -6,6 +6,72 @@ import { AuthRequest } from '../types/auth';
 
 const router = express.Router();
 
+function buildDefaultFormConfig(formKey: string) {
+  // Stored in PublicForm.config. Used by public/widget.js and server-side validation.
+  // configVersion is a simple string for forward-compat.
+  if (formKey === 'donation') {
+    return {
+      configVersion: '1',
+      fields: [
+        { name: 'name', type: 'text', label: "Ім'я", max: 100 },
+        { name: 'email', type: 'email', label: 'Email', max: 255 },
+        { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
+        { name: 'amount', type: 'amount', label: 'Сума', required: true, min: 0.01, max: 1_000_000 },
+        { name: 'message', type: 'textarea', label: 'Коментар', max: 2000 },
+        { name: 'source', type: 'text', label: 'Джерело', max: 100 },
+      ],
+      rules: { requireOneOf: ['name', 'email', 'phone'] },
+    };
+  }
+
+  if (formKey === 'booking') {
+    return {
+      configVersion: '1',
+      fields: [
+        { name: 'name', type: 'text', label: "Ім'я", max: 100 },
+        { name: 'email', type: 'email', label: 'Email', max: 255 },
+        { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
+        { name: 'service', type: 'text', label: 'Послуга', max: 120 },
+        { name: 'date', type: 'text', label: 'Дата', max: 50 },
+        { name: 'time', type: 'text', label: 'Час', max: 50 },
+        { name: 'message', type: 'textarea', label: 'Коментар', max: 2000 },
+        { name: 'source', type: 'text', label: 'Джерело', max: 100 },
+      ],
+      rules: { requireOneOf: ['name', 'email', 'phone'] },
+    };
+  }
+
+  if (formKey === 'feedback') {
+    return {
+      configVersion: '1',
+      fields: [
+        { name: 'name', type: 'text', label: "Ім'я", max: 100 },
+        { name: 'email', type: 'email', label: 'Email', max: 255 },
+        { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
+        { name: 'message', type: 'textarea', label: 'Відгук', required: true, max: 2000 },
+        { name: 'rating', type: 'number', label: 'Оцінка', min: 1, max: 5 },
+        { name: 'clientRequestId', type: 'text', label: 'Client Request ID', max: 80 },
+        { name: 'source', type: 'text', label: 'Джерело', max: 100 },
+      ],
+      rules: { requireOneOf: ['name', 'email', 'phone'] },
+    };
+  }
+
+  // lead default
+  return {
+    configVersion: '1',
+    fields: [
+      { name: 'name', type: 'text', label: "Ім'я", max: 100 },
+      { name: 'email', type: 'email', label: 'Email', max: 255 },
+      { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
+      { name: 'message', type: 'textarea', label: 'Повідомлення', max: 2000 },
+      { name: 'source', type: 'text', label: 'Джерело', max: 100 },
+    ],
+    rules: { requireOneOf: ['name', 'email', 'phone'] },
+  };
+}
+
+
 /**
  * GET /public-forms
  * Returns all public forms for the current project of the authenticated user.
@@ -54,7 +120,7 @@ router.post('/seed', requireAuth, async (req: AuthRequest, res) => {
     for (const d of defaults) {
       const existing = await prisma.publicForm.findFirst({
         where: { projectId, formKey: d.formKey },
-        select: { id: true },
+        select: { id: true, config: true },
       });
 
       if (!existing) {
@@ -65,16 +131,20 @@ router.post('/seed', requireAuth, async (req: AuthRequest, res) => {
             type: d.type,
             title: d.title,
             isActive: true,
+            config: buildDefaultFormConfig(d.formKey),
           },
         });
       } else {
-        await prisma.publicForm.update({
-          where: { id: existing.id },
-          data: {
-            // Keep user changes if they already exist (do not overwrite title/isActive/config)
-            type: d.type,
-          },
-        });
+        
+await prisma.publicForm.update({
+  where: { id: existing.id },
+  data: {
+    // Keep user changes if they already exist (do not overwrite title/isActive).
+    type: d.type,
+    // If config is empty (legacy), initialize it once from defaults.
+    ...(existing.config == null ? { config: buildDefaultFormConfig(d.formKey) } : {}),
+  },
+});
       }
     }
 
