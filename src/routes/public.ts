@@ -65,6 +65,204 @@ function normalizeText(raw?: string) {
   return v ? v : undefined;
 }
 
+
+// ---------- Public form schema (P2.1 PR1) ----------
+
+type PublicFieldType =
+  | 'text'
+  | 'email'
+  | 'tel'
+  | 'textarea'
+  | 'number'
+  | 'amount'
+  | 'select'
+  | 'checkbox';
+
+type PublicFormField = {
+  name: string;
+  type: PublicFieldType;
+  label?: string;
+  required?: boolean;
+  placeholder?: string;
+  min?: number; // string length OR numeric min (depends on type)
+  max?: number; // string length OR numeric max (depends on type)
+  pattern?: string;
+  options?: Array<{ value: string; label: string }>;
+  defaultValue?: any;
+};
+
+type PublicFormSchema = {
+  configVersion: string;
+  fields: PublicFormField[];
+  rules?: Record<string, any>;
+};
+
+function buildDefaultSchemaForForm(formKey: string): PublicFormSchema {
+  // NOTE: Source of truth is PublicForm.config.
+  // These defaults are used ONLY when config is missing (legacy DB rows),
+  // to avoid breaking existing widget installations.
+
+  if (formKey === 'donation') {
+    return {
+      configVersion: 'legacy-1',
+      fields: [
+        { name: 'name', type: 'text', label: "Ім'я", max: 100 },
+        { name: 'email', type: 'email', label: 'Email', max: 255 },
+        { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
+        { name: 'amount', type: 'amount', label: 'Сума', required: true, min: 0.01, max: 1_000_000 },
+        { name: 'message', type: 'textarea', label: 'Коментар', max: 2000 },
+        { name: 'source', type: 'text', label: 'Джерело', max: 100 },
+      ],
+      rules: { requireOneOf: ['name', 'email', 'phone'] },
+    };
+  }
+
+  if (formKey === 'booking') {
+    return {
+      configVersion: 'legacy-1',
+      fields: [
+        { name: 'name', type: 'text', label: "Ім'я", max: 100 },
+        { name: 'email', type: 'email', label: 'Email', max: 255 },
+        { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
+        { name: 'service', type: 'text', label: 'Послуга', max: 120 },
+        { name: 'date', type: 'text', label: 'Дата', max: 50 },
+        { name: 'time', type: 'text', label: 'Час', max: 50 },
+        { name: 'message', type: 'textarea', label: 'Коментар', max: 2000 },
+        { name: 'source', type: 'text', label: 'Джерело', max: 100 },
+      ],
+      rules: { requireOneOf: ['name', 'email', 'phone'] },
+    };
+  }
+
+  if (formKey === 'feedback') {
+    return {
+      configVersion: 'legacy-1',
+      fields: [
+        { name: 'name', type: 'text', label: "Ім'я", max: 100 },
+        { name: 'email', type: 'email', label: 'Email', max: 255 },
+        { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
+        { name: 'message', type: 'textarea', label: 'Відгук', required: true, max: 2000 },
+        { name: 'rating', type: 'number', label: 'Оцінка', min: 1, max: 5 },
+        { name: 'clientRequestId', type: 'text', label: 'Client Request ID', max: 80 },
+        { name: 'source', type: 'text', label: 'Джерело', max: 100 },
+      ],
+      rules: { requireOneOf: ['name', 'email', 'phone'] },
+    };
+  }
+
+  // lead (default)
+  return {
+    configVersion: 'legacy-1',
+    fields: [
+      { name: 'name', type: 'text', label: "Ім'я", max: 100 },
+      { name: 'email', type: 'email', label: 'Email', max: 255 },
+      { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
+      { name: 'message', type: 'textarea', label: 'Повідомлення', max: 2000 },
+      { name: 'source', type: 'text', label: 'Джерело', max: 100 },
+    ],
+    rules: { requireOneOf: ['name', 'email', 'phone'] },
+  };
+}
+
+function validatePublicPayloadBySchema(schema: PublicFormSchema, body: any) {
+  const errors: Array<{ field: string; message: string }> = [];
+  const out: Record<string, any> = {};
+
+  const getVal = (name: string) =>
+    body && Object.prototype.hasOwnProperty.call(body, name) ? (body as any)[name] : undefined;
+
+  for (const f of schema.fields) {
+    const raw = getVal(f.name);
+
+    const isEmpty =
+      raw === undefined ||
+      raw === null ||
+      (typeof raw === 'string' && raw.trim() === '') ||
+      (typeof raw === 'number' && Number.isNaN(raw));
+
+    if (f.required && isEmpty) {
+      errors.push({ field: f.name, message: 'Required' });
+      continue;
+    }
+
+    if (isEmpty) continue;
+
+    if (f.type === 'checkbox') {
+      const v = raw === true || raw === 'true' || raw === '1' || raw === 1;
+      out[f.name] = v;
+      continue;
+    }
+
+    if (f.type === 'number' || f.type === 'amount') {
+      const n = typeof raw === 'number' ? raw : Number(String(raw).replace(',', '.'));
+      if (!Number.isFinite(n)) {
+        errors.push({ field: f.name, message: 'Must be a number' });
+        continue;
+      }
+      if (typeof f.min === 'number' && n < f.min) {
+        errors.push({ field: f.name, message: `Must be >= ${f.min}` });
+        continue;
+      }
+      if (typeof f.max === 'number' && n > f.max) {
+        errors.push({ field: f.name, message: `Must be <= ${f.max}` });
+        continue;
+      }
+      out[f.name] = n;
+      continue;
+    }
+
+    const s = String(raw).trim();
+    if (typeof f.min === 'number' && s.length < f.min) {
+      errors.push({ field: f.name, message: `Min length ${f.min}` });
+      continue;
+    }
+    if (typeof f.max === 'number' && s.length > f.max) {
+      errors.push({ field: f.name, message: `Max length ${f.max}` });
+      continue;
+    }
+    if (f.pattern) {
+      try {
+        const r = new RegExp(f.pattern);
+        if (!r.test(s)) {
+          errors.push({ field: f.name, message: 'Invalid format' });
+          continue;
+        }
+      } catch {
+        // ignore invalid server pattern
+      }
+    }
+    if (f.type === 'email') {
+      const emailLike = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailLike.test(s)) {
+        errors.push({ field: f.name, message: 'Invalid email' });
+        continue;
+      }
+    }
+
+    out[f.name] = s;
+  }
+
+  const requireOneOf =
+    schema.rules && Array.isArray((schema.rules as any).requireOneOf)
+      ? (schema.rules as any).requireOneOf
+      : null;
+  if (requireOneOf && requireOneOf.length > 0) {
+    const ok = requireOneOf.some((k: string) => {
+      const v = out[k];
+      return v !== undefined && v !== null && !(typeof v === 'string' && v.trim() === '');
+    });
+    if (!ok) {
+      errors.push({
+        field: requireOneOf[0] || 'name',
+        message: `At least one of ${requireOneOf.join(', ')} is required`,
+      });
+    }
+  }
+
+  return { ok: errors.length === 0, errors, data: out };
+}
+
+
 function isPrismaUniqueConstraintError(err: any): boolean {
   return Boolean(err && typeof err === 'object' && (err as any).code === 'P2002');
 }
@@ -304,18 +502,29 @@ router.get('/forms/:projectSlug/:formKey/config', publicConfigLimiter, async (re
         projectId: project.id,
         formKey,
       },
-      select: { formKey: true, title: true, isActive: true },
+      select: { formKey: true, title: true, isActive: true, config: true },
     });
 
     if (!publicForm) {
-      // Treat missing form as inactive (seed required)
       return res.status(404).json({ error: 'Form not found' });
     }
+
+    const cfg: any = publicForm.config || null;
+    const schema: any = cfg && typeof cfg === 'object' && Array.isArray((cfg as any).fields)
+      ? {
+          configVersion: String((cfg as any).configVersion || '1'),
+          fields: (cfg as any).fields,
+          rules: (cfg as any).rules || {},
+        }
+      : buildDefaultSchemaForForm(publicForm.formKey);
 
     return res.json({
       formKey: publicForm.formKey,
       title: publicForm.title,
       isActive: publicForm.isActive,
+      configVersion: schema.configVersion,
+      fields: schema.fields,
+      rules: schema.rules || {},
     });
   } catch (e) {
     console.error('[public] config error', e);
@@ -376,6 +585,41 @@ router.post('/forms/:projectSlug/:formKey', publicSubmitLimiter, async (req, res
       }
     }
 
+
+
+// ---- Load public form + schema (P2.1 PR1) ----
+const publicFormRow = await prisma.publicForm.findFirst({
+  where: { projectId: projectGuard.id, formKey },
+  select: { id: true, formKey: true, title: true, isActive: true, config: true },
+});
+
+if (!publicFormRow) {
+  return res.status(404).json({ error: 'Form not found' });
+}
+
+if (!publicFormRow.isActive) {
+  return res.status(410).json({ error: 'Form is disabled' });
+}
+
+const cfg: any = publicFormRow.config || null;
+const schema: any = cfg && typeof cfg === 'object' && Array.isArray((cfg as any).fields)
+  ? {
+      configVersion: String((cfg as any).configVersion || '1'),
+      fields: (cfg as any).fields,
+      rules: (cfg as any).rules || {},
+    }
+  : buildDefaultSchemaForForm(publicFormRow.formKey);
+
+const validated = validatePublicPayloadBySchema(schema, req.body);
+if (!validated.ok) {
+  return res.status(400).json({
+    error: 'Invalid form payload',
+    details: validated.errors,
+  });
+}
+
+// Merge sanitized/coerced values back (keeps __hp/clientRequestId if present)
+req.body = { ...(req.body || {}), ...(validated.data || {}) };
     // ----- LEAD -----
     if (formKey === 'lead') {
       const parsed = publicLeadSchema.parse(req.body);
