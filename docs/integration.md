@@ -216,3 +216,9 @@ npx serve docs/examples -l 8080
 ```
 
 Update `data-project-slug` and `data-project-key` in the HTML before testing.
+
+---
+
+## Smoke tests
+
+See `docs/smoke.md` for a quick end-to-end validation script (`scripts/smoke.sh`).

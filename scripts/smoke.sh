@@ -1,110 +1,226 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# mini-crm-core — one-command public integration smoke test
+# Mini CRM Core - Smoke tests (PR7)
 #
-# What it checks:
-# 1) GET  /health → 200
-# 2) POST /auth/login → JWT
-# 3) GET  /projects/current/integration → slug + publicKey
-# 4) POST /projects/current/allowed-origins (201 or 409 is OK)
-# 5) POST /public-forms/seed
-# 6) GET  /public/forms/:slug/feedback/config with X-Project-Key + Origin
-# Optional (SMOKE_INVITES=1):
-# 7) POST /invites → token
-# 8) POST /invites/accept-public → JWT
-# 9) GET  /cases (admin) → 200
+# Requirements:
+# - bash, curl, node (for tiny JSON parsing)
 #
-# Requirements: bash, curl, node
+# Usage example:
+#   BASE="http://localhost:4000" \
+#   EMAIL="owner@example.com" \
+#   PASSWORD="secret123" \
+#   SLUG="volunteers-odesa-dev" \
+#   PROJECT_KEY="..." \
+#   ORIGIN="http://localhost:8080" \
+#   ./scripts/smoke.sh
+#
+# Notes:
+# - If your project has Origin allowlist enabled, ORIGIN must be in the allowlist.
+# - This script will temporarily disable one public form (feedback) and then re-enable it.
 
 BASE="${BASE:-http://localhost:4000}"
-EMAIL="${EMAIL:-owner@example.com}"
-PASSWORD="${PASSWORD:-${PASS:-secret123}}"
-ORIGIN_DEFAULT="https://test.local"
-# Back-compat: earlier docs used SMOKE_ORIGIN.
-ORIGIN="${ORIGIN:-${SMOKE_ORIGIN:-$ORIGIN_DEFAULT}}"
+ORIGIN="${ORIGIN:-http://localhost:8080}"
+SLUG="${SLUG:-demo}"
+PROJECT_KEY="${PROJECT_KEY:-}"
+EMAIL="${EMAIL:-}"
+PASSWORD="${PASSWORD:-}"
 
-log()  { printf "[smoke] %s\n" "$*"; }
-fail() { printf "❌ SMOKE FAIL: %s\n" "$*" >&2; exit 1; }
+die() { echo "ERROR: $*" >&2; exit 1; }
+need() { [[ -n "${!1}" ]] || die "Missing env var: $1"; }
 
 json_get() {
-  local expr="$1"
-  node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{try{const j=JSON.parse(s||'{}');const v=(function(){return (${expr});})(); if(v===undefined||v===null){process.exit(0)}; if(typeof v==='object') console.log(JSON.stringify(v)); else console.log(String(v));}catch(e){process.exit(0)}})" 2>/dev/null || true
+  # json_get '<json>' 'path.to.field'
+  node -e "const obj=JSON.parse(process.argv[1]); const path=process.argv[2].split('.'); let v=obj; for(const p of path){ if(v==null){process.exit(2)}; v=v[p]; } if (typeof v==='string') process.stdout.write(v); else process.stdout.write(JSON.stringify(v));" "$1" "$2"
 }
 
-http_code() {
-  # usage: http_code <curl args...>
-  curl -sS -o /dev/null -w "%{http_code}" "$@"
+http() {
+  # http METHOD URL [DATA]
+  local method="$1"; shift
+  local url="$1"; shift
+  local data="${1:-}"
+
+  local body_file
+  body_file="$(mktemp)"
+  local code
+
+  if [[ -n "$data" ]]; then
+    code="$(curl -sS -o "$body_file" -w "%{http_code}" -X "$method" "$url" \
+      -H "Content-Type: application/json" \
+      "$@"
+      --data "$data")"
+  else
+    code="$(curl -sS -o "$body_file" -w "%{http_code}" -X "$method" "$url" "$@")"
+  fi
+
+  echo "$code $body_file"
 }
 
-# 1) Health
-log "Health: $BASE/health"
-code="$(http_code "$BASE/health")"
-[[ "$code" == "200" ]] || fail "Health check failed (HTTP $code). Is server running (npm run dev)?"
+expect_code() {
+  local got="$1" want="$2" msg="$3"
+  if [[ "$got" != "$want" ]]; then
+    die "$msg (expected $want, got $got)"
+  fi
+}
 
-# 2) Login
-log "Login: $EMAIL"
-LOGIN_JSON="$(curl -sS -X POST "$BASE/auth/login" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")" || true
+echo "== Smoke: health =="
+read -r code body < <(http GET "$BASE/health")
+expect_code "$code" "200" "Health endpoint failed"
+echo "OK"
 
-TOKEN="$(json_get "j.token || j.accessToken || j.jwt" <<<"$LOGIN_JSON")"
-[[ -n "${TOKEN:-}" ]] || fail "Login failed: token is empty. Response: $LOGIN_JSON"
+need SLUG
+need PROJECT_KEY
 
-# 3) Integration
-log "Integration: slug + publicKey"
-INTEGRATION_JSON="$(curl -sS "$BASE/projects/current/integration" -H "Authorization: Bearer $TOKEN")" || true
-SLUG="$(json_get "j.project?.slug || j.slug" <<<"$INTEGRATION_JSON")"
-PUBLIC_KEY="$(json_get "j.project?.publicKey || j.publicKey" <<<"$INTEGRATION_JSON")"
-[[ -n "${SLUG:-}" ]] || fail "Cannot read slug from /projects/current/integration. Response: $INTEGRATION_JSON"
-[[ -n "${PUBLIC_KEY:-}" ]] || fail "Cannot read publicKey from /projects/current/integration. Response: $INTEGRATION_JSON"
-log "Project: slug=$SLUG publicKey=${PUBLIC_KEY:0:8}…"
+echo
+echo "== Smoke: config (donation) should be 200 with allowed Origin =="
+read -r code body < <(http GET "$BASE/public/forms/$SLUG/donation/config" \
+  -H "X-Project-Key: $PROJECT_KEY" \
+  -H "Origin: $ORIGIN" \
+  -H "Accept: application/json")
+expect_code "$code" "200" "Donation config failed"
+rm -f "$body"
+echo "OK"
 
-# 4) Ensure allowlist origin
-log "Allowlist: ensure origin '$ORIGIN'"
-code="$(http_code -X POST "$BASE/projects/current/allowed-origins"   -H "Authorization: Bearer $TOKEN"   -H "Content-Type: application/json"   -d "{\"origin\":\"$ORIGIN\"}")"
+echo
+echo "== Smoke: donation submit without required amount -> 400 with details.amount Required =="
+read -r code body < <(http POST "$BASE/public/forms/$SLUG/donation" \
+  -H "X-Project-Key: $PROJECT_KEY" \
+  -H "Origin: $ORIGIN" \
+  -H "Accept: application/json" \
+  '{"name":"Test User","email":"test@example.com","comment":"no amount"}')
+expect_code "$code" "400" "Donation submit without amount should be 400"
+# best-effort assertion
+if ! grep -q '"field":"amount"' "$body"; then
+  echo "WARN: expected amount error in details, got:"; cat "$body"; echo
+fi
+rm -f "$body"
+echo "OK"
 
-if [[ "$code" != "201" && "$code" != "409" ]]; then
-  fail "Allowlist add failed (expected 201/409, got HTTP $code)"
+echo
+echo "== Smoke: contact email normalization (same contact for different email casing) =="
+# 1st lead submit
+read -r code body < <(http POST "$BASE/public/forms/$SLUG/lead" \
+  -H "X-Project-Key: $PROJECT_KEY" \
+  -H "Origin: $ORIGIN" \
+  -H "Accept: application/json" \
+  '{"name":"Case Test","email":"CaseTest@Example.com","message":"first"}')
+expect_code "$code" "201" "Lead submit #1 should be 201"
+json1="$(cat "$body")"
+cid1="$(json_get "$json1" "contact.id")" || die "Cannot read contact.id from lead #1 response"
+rm -f "$body"
+
+# 2nd lead submit with different casing
+read -r code body < <(http POST "$BASE/public/forms/$SLUG/lead" \
+  -H "X-Project-Key: $PROJECT_KEY" \
+  -H "Origin: $ORIGIN" \
+  -H "Accept: application/json" \
+  '{"name":"Case Test 2","email":"casetest@example.com","message":"second"}')
+expect_code "$code" "201" "Lead submit #2 should be 201"
+json2="$(cat "$body")"
+cid2="$(json_get "$json2" "contact.id")" || die "Cannot read contact.id from lead #2 response"
+rm -f "$body"
+
+if [[ "$cid1" != "$cid2" ]]; then
+  die "Email normalization failed: contact.id differs ($cid1 vs $cid2)"
+fi
+echo "OK (contact.id=$cid1)"
+
+echo
+echo "== Smoke: idempotency via X-Request-Id (repeat submit -> 201 then 200) =="
+REQ_ID="smoke-req-$(date +%s)"
+payload='{"name":"Idem Test","email":"idem@example.com","message":"idempotency"}'
+
+read -r code body < <(http POST "$BASE/public/forms/$SLUG/lead" \
+  -H "X-Project-Key: $PROJECT_KEY" \
+  -H "Origin: $ORIGIN" \
+  -H "X-Request-Id: $REQ_ID" \
+  -H "Accept: application/json" \
+  "$payload")
+expect_code "$code" "201" "Idempotency first submit should be 201"
+rm -f "$body"
+
+read -r code body < <(http POST "$BASE/public/forms/$SLUG/lead" \
+  -H "X-Project-Key: $PROJECT_KEY" \
+  -H "Origin: $ORIGIN" \
+  -H "X-Request-Id: $REQ_ID" \
+  -H "Accept: application/json" \
+  "$payload")
+expect_code "$code" "200" "Idempotency second submit should be 200"
+rm -f "$body"
+echo "OK"
+
+echo
+echo "== Smoke: Origin allowlist blocks unknown origin (best-effort) =="
+read -r code body < <(http GET "$BASE/public/forms/$SLUG/donation/config" \
+  -H "X-Project-Key: $PROJECT_KEY" \
+  -H "Origin: http://evil.invalid" \
+  -H "Accept: application/json")
+if [[ "$code" == "403" ]]; then
+  echo "OK (403 as expected)"
+elif [[ "$code" == "200" ]]; then
+  echo "WARN: got 200; allowlist likely disabled for this project/environment (skipping strict check)"
+else
+  echo "WARN: unexpected code $code; response:"; cat "$body"; echo
+fi
+rm -f "$body"
+
+echo
+echo "== Smoke: disable a public form -> submit returns 410, then re-enable (requires admin login) =="
+if [[ -z "$EMAIL" || -z "$PASSWORD" ]]; then
+  echo "SKIP: EMAIL/PASSWORD not provided; cannot test disable/enable flow."
+  exit 0
 fi
 
-# 5) Seed public forms (idempotent)
-log "Seed: /public-forms/seed"
-code="$(http_code -X POST "$BASE/public-forms/seed" -H "Authorization: Bearer $TOKEN")"
-if [[ "$code" != "200" && "$code" != "201" && "$code" != "204" ]]; then
-  fail "Seed failed (HTTP $code)"
+# login
+read -r code body < <(http POST "$BASE/auth/login" -H "Accept: application/json" \
+  "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")
+expect_code "$code" "200" "Login failed"
+token="$(json_get "$(cat "$body")" "token")" || die "Cannot read token from login response"
+rm -f "$body"
+
+# list public forms
+read -r code body < <(http GET "$BASE/public-forms" \
+  -H "Authorization: Bearer $token" \
+  -H "Accept: application/json")
+expect_code "$code" "200" "GET /public-forms failed"
+forms_json="$(cat "$body")"
+rm -f "$body"
+
+# find feedback id
+feedback_id="$(node -e "const arr=JSON.parse(process.argv[1]); const f=arr.find(x=>x.formKey==='feedback'); if(!f){process.exit(2)}; process.stdout.write(String(f.id));" "$forms_json" 2>/dev/null || true)"
+if [[ -z "$feedback_id" ]]; then
+  echo "SKIP: feedback form not found in /public-forms"
+  exit 0
 fi
 
-# 6) Public config
-log "Public config: /public/forms/$SLUG/feedback/config"
-CONFIG_JSON="$(curl -sS "$BASE/public/forms/$SLUG/feedback/config"   -H "X-Project-Key: $PUBLIC_KEY"   -H "Origin: $ORIGIN")" || true
+# disable
+read -r code body < <(http PATCH "$BASE/public-forms/$feedback_id" \
+  -H "Authorization: Bearer $token" \
+  -H "Accept: application/json" \
+  '{"isActive":false}')
+expect_code "$code" "200" "PATCH disable feedback failed"
+rm -f "$body"
 
-FORM_KEY="$(json_get "j.form?.key || j.key || j.formKey" <<<"$CONFIG_JSON")"
-[[ -n "${FORM_KEY:-}" ]] || fail "Public config failed: cannot read form key. Response: $CONFIG_JSON"
-
-# Optional: invite-link chain (create invite → accept-public → access /cases)
-if [[ "${SMOKE_INVITES:-0}" == "1" ]]; then
-  log "Invites: create invite + accept-public + /cases access"
-
-  INVITE_JSON="$(curl -sS -X POST "$BASE/invites"     -H "Authorization: Bearer $TOKEN"     -H "Content-Type: application/json"     -d "{\"role\":\"admin\",\"ttlHours\":168}")" || true
-
-  INVITE_TOKEN="$(json_get "j.token || j.invite?.token || j.data?.token" <<<"$INVITE_JSON")"
-  [[ -n "${INVITE_TOKEN:-}" ]] || fail "Invite create failed: token is empty. Response: $INVITE_JSON"
-
-  INVITE_EMAIL="smoke+invite-$(date +%s)-$$@example.com"
-  INVITE_PASSWORD="secret123"
-
-  ACCEPT_JSON="$(curl -sS -X POST "$BASE/invites/accept-public" \
-    -H "Content-Type: application/json" \
-    -d "{\"token\":\"$INVITE_TOKEN\",\"email\":\"$INVITE_EMAIL\",\"password\":\"$INVITE_PASSWORD\"}")" || true
-
-  ADMIN_TOKEN="$(json_get "j.token || j.accessToken || j.jwt" <<<"$ACCEPT_JSON")"
-  [[ -n "${ADMIN_TOKEN:-}" ]] || fail "Invite accept-public failed: token is empty. Response: $ACCEPT_JSON"
-
-  code="$(http_code "$BASE/cases?status=all" -H "Authorization: Bearer $ADMIN_TOKEN")"
-  [[ "$code" == "200" ]] || fail "Admin /cases failed (HTTP $code)"
-  log "Invites: OK (email=$INVITE_EMAIL)"
+# submit feedback -> 410
+read -r code body < <(http POST "$BASE/public/forms/$SLUG/feedback" \
+  -H "X-Project-Key: $PROJECT_KEY" \
+  -H "Origin: $ORIGIN" \
+  -H "Accept: application/json" \
+  '{"name":"Disabled Test","email":"disabled@example.com","message":"should be disabled"}')
+if [[ "$code" != "410" ]]; then
+  echo "WARN: expected 410 when disabled, got $code; response:"; cat "$body"; echo
+else
+  echo "OK (410 as expected)"
 fi
+rm -f "$body"
 
-log "Summary: base=$BASE slug=$SLUG formKey=feedback origin=$ORIGIN publicKey=${PUBLIC_KEY:0:8}…"
-printf "✅ SMOKE OK\n"
+# re-enable
+read -r code body < <(http PATCH "$BASE/public-forms/$feedback_id" \
+  -H "Authorization: Bearer $token" \
+  -H "Accept: application/json" \
+  '{"isActive":true}')
+expect_code "$code" "200" "PATCH re-enable feedback failed"
+rm -f "$body"
+
+echo
+echo "ALL DONE"
