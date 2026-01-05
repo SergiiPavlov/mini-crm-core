@@ -4,19 +4,9 @@ import rateLimit from 'express-rate-limit';
 import prisma from '../db/client';
 import { sendNotificationMail } from '../services/mailer';
 import { findOrCreateContact } from '../services/contacts';
+import { sanitizeText } from '../utils/sanitizeText';
 
 const router = express.Router();
-
-
-function computeContactName(name?: string, email?: string, phone?: string): string {
-  const n = (name && name.trim()) || '';
-  if (n) return n.slice(0, 255);
-  const e = (email && email.trim()) || '';
-  if (e) return e.slice(0, 255);
-  const p = (phone && phone.trim()) || '';
-  if (p) return p.slice(0, 255);
-  return 'Unknown';
-}
 
 
 // ---------- Public rate limiting (platform safety) ----------
@@ -50,20 +40,8 @@ function getHeader(req: any, name: string): string | undefined {
   return v ? String(v).trim() : undefined;
 }
 
-function normalizePhone(raw?: string) {
-  if (!raw) return undefined;
-  const v = String(raw).trim();
-  if (!v) return undefined;
-  // keep digits and leading plus
-  const cleaned = v.replace(/(?!^\+)\D+/g, '');
-  return cleaned.length ? cleaned : undefined;
-}
-
-function normalizeText(raw?: string) {
-  if (raw == null) return undefined;
-  const v = String(raw).trim();
-  return v ? v : undefined;
-}
+// NOTE: raw contact normalization is handled by contacts.service (emailNormalized/phoneNormalized).
+// Here we only sanitize user-provided strings for safe storage/output.
 
 
 // ---------- Public form schema (P2.1 PR1) ----------
@@ -629,11 +607,11 @@ req.body = { ...(req.body || {}), ...(validated.data || {}) };
         return res.status(202).json({ received: true });
       }
 
-      const name = normalizeText(parsed.name);
-      const email = normalizeText(parsed.email);
-      const phone = normalizeText(parsed.phone);
-      const message = normalizeText(parsed.message);
-      const source = normalizeText(parsed.source);
+      const name = sanitizeText(parsed.name, 100);
+      const email = sanitizeText(parsed.email, 255);
+      const phone = sanitizeText(parsed.phone, 30);
+      const message = sanitizeText(parsed.message, 2000);
+      const source = sanitizeText(parsed.source, 100);
 
       const project = await prisma.project.findUnique({
         where: { id: projectGuard.id },
@@ -757,12 +735,12 @@ req.body = { ...(req.body || {}), ...(validated.data || {}) };
         return res.status(202).json({ received: true });
       }
 
-      const name = normalizeText(parsed.name);
-      const email = normalizeText(parsed.email);
-      const phone = normalizeText(parsed.phone);
+      const name = sanitizeText(parsed.name, 100);
+      const email = sanitizeText(parsed.email, 255);
+      const phone = sanitizeText(parsed.phone, 30);
       const amount = parsed.amount;
-      const message = normalizeText(parsed.message);
-      const source = normalizeText(parsed.source);
+      const message = sanitizeText(parsed.message, 2000);
+      const source = sanitizeText(parsed.source, 100);
 
       const project = await prisma.project.findUnique({
         where: { id: projectGuard.id },
@@ -813,7 +791,8 @@ req.body = { ...(req.body || {}), ...(validated.data || {}) };
         }
       }
 
-      const contactName = computeContactName(name, email, phone);
+      const contactName =
+        name || (email ? email.split('@')[0] : undefined) || phone || 'Anonymous';
 
       // IMPORTANT: create/reuse Contact inside the same transaction as Case/Transaction
       // to avoid "orphan" contacts when Case creation fails.
@@ -952,14 +931,14 @@ req.body = { ...(req.body || {}), ...(validated.data || {}) };
         return res.status(202).json({ received: true });
       }
 
-      const name = normalizeText(parsed.name);
-      const email = normalizeText(parsed.email);
-      const phone = normalizeText(parsed.phone);
-      const service = normalizeText(parsed.service);
-      const date = normalizeText(parsed.date);
-      const time = normalizeText(parsed.time);
-      const message = normalizeText(parsed.message);
-      const source = normalizeText(parsed.source);
+      const name = sanitizeText(parsed.name, 100);
+      const email = sanitizeText(parsed.email, 255);
+      const phone = sanitizeText(parsed.phone, 30);
+      const service = sanitizeText(parsed.service, 120);
+      const date = sanitizeText(parsed.date, 50);
+      const time = sanitizeText(parsed.time, 50);
+      const message = sanitizeText(parsed.message, 2000);
+      const source = sanitizeText(parsed.source, 100);
 
       const project = await prisma.project.findUnique({
         where: { id: projectGuard.id },
@@ -1007,7 +986,7 @@ req.body = { ...(req.body || {}), ...(validated.data || {}) };
       if (message) detailsParts.push(`Коментар: ${message}`);
       const details = detailsParts.join(' | ');
 
-      const contactName = computeContactName(name, email, phone);
+      const contactName = name || email || phone || 'Guest';
 
       let bookingCase: any = null;
       let contact: any = null;
@@ -1101,6 +1080,11 @@ req.body = { ...(req.body || {}), ...(validated.data || {}) };
 
       const { name, email, phone, message, rating } = parsed.data;
 
+      const nameS = sanitizeText(name, 100);
+      const emailS = sanitizeText(email, 255);
+      const phoneS = sanitizeText(phone, 30);
+      const messageS = sanitizeText(message, 2000);
+
       const project = await prisma.project.findUnique({
         where: { id: projectGuard.id },
       });
@@ -1136,17 +1120,18 @@ req.body = { ...(req.body || {}), ...(validated.data || {}) };
         }
       }
 
-            const safeName = normalizeText(name) || 'Anonymous';
+      const safeName =
+        nameS || (emailS ? emailS.split('@')[0] : undefined) || phoneS || 'Anonymous';
       const { contact, feedbackCase } = await prisma.$transaction(async (tx) => {
         const contact = await findOrCreateContact(
           project.id,
-          { name: safeName, email, phone, notes: null },
+          { name: safeName, email: emailS, phone: phoneS, notes: null },
           tx
         );
 
         const parts: string[] = [];
         if (typeof rating === 'number') parts.push(`Rating: ${rating}/5`);
-        if (message) parts.push(message);
+        if (messageS) parts.push(messageS);
 
         const feedbackCase = await tx.case.create({
           data: {

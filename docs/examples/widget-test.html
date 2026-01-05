@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mini CRM Widget Test</title>
+    <style>
+      body {
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        margin: 24px;
+        background: #f6f7fb;
+      }
+      h1 {
+        margin: 0 0 12px 0;
+        font-size: 20px;
+      }
+      p {
+        margin: 0 0 18px 0;
+        color: #555;
+      }
+      section {
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 16px;
+        margin-bottom: 16px;
+      }
+      code {
+        background: #f3f4f6;
+        padding: 2px 6px;
+        border-radius: 6px;
+      }
+      .note {
+        max-width: 980px;
+        margin: 16px auto;
+        padding: 12px 14px;
+        background: #fff3cd;
+        border: 1px solid #ffeeba;
+        border-radius: 10px;
+      }
+      .wrap {
+        max-width: 980px;
+        margin: 0 auto;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+      }
+      .badge {
+        display: inline-block;
+        font-size: 12px;
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid #e5e7eb;
+        background: #fff;
+      }
+      .ok {
+        border-color: #86efac;
+        background: #f0fdf4;
+      }
+      .bad {
+        border-color: #fca5a5;
+        background: #fef2f2;
+      }
+      .muted {
+        color: #666;
+        font-size: 13px;
+      }
+      .kv {
+        font-size: 13px;
+        color: #444;
+      }
+      .kv b {
+        color: #111;
+      }
+      .hr {
+        height: 1px;
+        background: #e5e7eb;
+        margin: 12px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="note">
+      <strong>Local test note:</strong>
+      Open this page via <code>http://localhost:8080</code> (not
+      <code>file://</code>), because public endpoints enforce an Origin
+      allowlist. Make sure your project allowlist contains
+      <code>http://localhost:8080</code>.
+    </div>
+
+    <div class="wrap">
+      <h1>Mini CRM widgets test page</h1>
+
+      <div class="row kv">
+        <span><b>CRM base:</b> <code id="baseText"></code></span>
+        <span><b>projectSlug:</b> <code id="slugText"></code></span>
+        <span><b>projectKey:</b> <code id="keyText"></code></span>
+        <span class="badge" id="healthBadge">health: …</span>
+        <span class="badge" id="configBadge">config: …</span>
+      </div>
+
+      <div class="hr"></div>
+
+      <script>
+        const BASE = "http://localhost:4000";
+        const PROJECT_SLUG = "volunteers-odesa-dev";
+        const PROJECT_KEY = "c86fe040be4c8e75db468e308ef4c1309e67511d062f782c";
+
+        // Cosmetic
+        document.getElementById("baseText").textContent = BASE;
+        document.getElementById("slugText").textContent = PROJECT_SLUG;
+        document.getElementById("keyText").textContent = PROJECT_KEY.startsWith(
+          "PUT_"
+        )
+          ? "NOT SET"
+          : PROJECT_KEY.slice(0, 8) + "…";
+
+        function setBadge(el, ok, text) {
+          el.classList.remove("ok", "bad");
+          el.classList.add(ok ? "ok" : "bad");
+          el.textContent = text;
+        }
+
+        async function checkHealth() {
+          const el = document.getElementById("healthBadge");
+          try {
+            const r = await fetch(`${BASE}/health`, { method: "GET" });
+            if (!r.ok) return setBadge(el, false, `health: ${r.status}`);
+            setBadge(el, true, `health: ${r.status}`);
+          } catch {
+            setBadge(el, false, "health: fetch failed");
+          }
+        }
+
+        async function checkConfig() {
+          const el = document.getElementById("configBadge");
+          if (PROJECT_KEY.startsWith("PUT_")) {
+            return setBadge(el, false, "config: PROJECT_KEY not set");
+          }
+          try {
+            const r = await fetch(
+              `${BASE}/public/forms/${encodeURIComponent(
+                PROJECT_SLUG
+              )}/lead/config`,
+              {
+                method: "GET",
+                headers: {
+                  "X-Project-Key": PROJECT_KEY,
+                  // Важно: Origin выставит браузер сам, когда страница открыта через http://localhost:8080
+                  Accept: "application/json",
+                },
+              }
+            );
+            if (!r.ok) {
+              let err = "";
+              try {
+                err = (await r.json()).error || "";
+              } catch {}
+              return setBadge(
+                el,
+                false,
+                `config: ${r.status}${err ? " (" + err + ")" : ""}`
+              );
+            }
+            setBadge(el, true, `config: ${r.status}`);
+          } catch {
+            setBadge(el, false, "config: fetch failed");
+          }
+        }
+
+        // Expose for widget loaders (wrappers read dataset, but this is convenient)
+        window.__MINI_CRM_WIDGET_TEST__ = { BASE, PROJECT_SLUG, PROJECT_KEY };
+
+        checkHealth();
+        checkConfig();
+      </script>
+
+      <section>
+        <h3 style="margin: 0 0 10px 0">Lead</h3>
+        <script
+          src="http://localhost:4000/widget/lead-form.js"
+          data-project-slug="volunteers-odesa-dev"
+          data-project-key="PUT_YOUR_PUBLIC_KEY_HERE"
+        ></script>
+      </section>
+
+      <section>
+        <h3 style="margin: 0 0 10px 0">Donation</h3>
+        <script
+          src="http://localhost:4000/widget/donation-form.js"
+          data-project-slug="volunteers-odesa-dev"
+          data-project-key="PUT_YOUR_PUBLIC_KEY_HERE"
+        ></script>
+      </section>
+
+      <section>
+        <h3 style="margin: 0 0 10px 0">Booking</h3>
+        <script
+          src="http://localhost:4000/widget/booking-form.js"
+          data-project-slug="volunteers-odesa-dev"
+          data-project-key="PUT_YOUR_PUBLIC_KEY_HERE"
+        ></script>
+      </section>
+
+      <section>
+        <h3 style="margin: 0 0 10px 0">Feedback</h3>
+        <script
+          src="http://localhost:4000/widget/feedback-form.js"
+          data-project-slug="volunteers-odesa-dev"
+          data-project-key="PUT_YOUR_PUBLIC_KEY_HERE"
+        ></script>
+      </section>
+
+      <p class="muted">
+        Note: if a form is disabled, submit returns <code>410</code>. Enable it
+        in Admin → Integration → Public forms. If you see
+        <code>403 Origin/Referer not allowed</code>, add
+        <code>http://localhost:8080</code> to the project allowlist.
+      </p>
+
+      <script>
+        // Keep dataset in sync with constants above (so you change key once)
+        (function syncDatasets() {
+          const { PROJECT_SLUG, PROJECT_KEY } =
+            window.__MINI_CRM_WIDGET_TEST__ || {};
+          if (!PROJECT_SLUG || !PROJECT_KEY) return;
+
+          document
+            .querySelectorAll(
+              'script[src*="/widget/"][data-project-slug][data-project-key]'
+            )
+            .forEach((s) => {
+              s.dataset.projectSlug = PROJECT_SLUG;
+              s.dataset.projectKey = PROJECT_KEY;
+            });
+        })();
+      </script>
+    </div>
+  </body>
+</html>

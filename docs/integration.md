@@ -201,3 +201,18 @@ npx serve . -l 8080
 - `GET /public/forms/:slug/:formKey/config` → `200`
 - `POST /public/forms/:slug/:formKey` без required → `400` с `details[]`
 - `POST ...` валидный → `201`
+
+
+## Local testing example
+
+A ready-to-run example page is available at `docs/examples/widget-test.html`.
+
+Run a static server on port 8080 so the browser `Origin` matches the allowlist:
+
+```bash
+npx serve docs/examples -l 8080
+# open:
+# http://localhost:8080/widget-test.html
+```
+
+Update `data-project-slug` and `data-project-key` in the HTML before testing.
