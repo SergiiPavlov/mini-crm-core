@@ -26,6 +26,7 @@
   if (ds.projectKey) s.dataset.projectKey = ds.projectKey;
   if (ds.apiBase) s.dataset.apiBase = ds.apiBase;
   if (ds.demo) s.dataset.demo = ds.demo;
+  if (ds.source) s.dataset.source = ds.source;
 
   // Back-compat: allow old embeds that used data-project / data-key
   if (!s.dataset.projectSlug && ds.project) s.dataset.projectSlug = ds.project;
