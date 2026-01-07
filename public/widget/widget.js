@@ -323,6 +323,7 @@
     var formType = normFormType(scriptEl.getAttribute('data-form'));
     var buttonText = scriptEl.getAttribute('data-button-text') || 'Відкрити форму';
     var titleText = scriptEl.getAttribute('data-title') || '';
+    var sourceText = scriptEl.getAttribute('data-source') || '';
 
     var demoAttr = scriptEl.getAttribute('data-demo');
     var isDemo = (demoAttr === '1' || demoAttr === 'true' || demoAttr === 'yes');
@@ -494,7 +495,15 @@
         payload[k] = s;
       });
 
-            // Demo mode: do not send or persist data.
+
+      // Auto source (hidden field): explicit data-source wins; otherwise <form>-widget
+      if (!payload.source) {
+        var src = (sourceText || '').toString().trim();
+        if (!src) src = String(formType || 'widget') + '-widget';
+        payload.source = src;
+      }
+
+      // Demo mode: do not send or persist data.
       if (isDemo) {
         try {
           console.info('[mini-crm][demo] Submit blocked (no DB write). Payload:', payload);

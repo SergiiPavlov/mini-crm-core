@@ -123,7 +123,6 @@ function buildDefaultSchemaForForm(formKey: string): PublicFormSchema {
         { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
         { name: 'amount', type: 'amount', label: 'Сума', required: true, min: 0.01, max: 1_000_000 },
         { name: 'message', type: 'textarea', label: 'Коментар', max: 2000 },
-        { name: 'source', type: 'text', label: 'Джерело', max: 100 },
       ],
       rules: { requireOneOf: ['name', 'email', 'phone'] },
     };
@@ -140,7 +139,6 @@ function buildDefaultSchemaForForm(formKey: string): PublicFormSchema {
         { name: 'date', type: 'text', label: 'Дата', max: 50 },
         { name: 'time', type: 'text', label: 'Час', max: 50 },
         { name: 'message', type: 'textarea', label: 'Коментар', max: 2000 },
-        { name: 'source', type: 'text', label: 'Джерело', max: 100 },
       ],
       rules: { requireOneOf: ['name', 'email', 'phone'] },
     };
@@ -155,8 +153,6 @@ function buildDefaultSchemaForForm(formKey: string): PublicFormSchema {
         { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
         { name: 'message', type: 'textarea', label: 'Відгук', required: true, max: 2000 },
         { name: 'rating', type: 'number', label: 'Оцінка', min: 1, max: 5 },
-        { name: 'clientRequestId', type: 'text', label: 'Client Request ID', max: 80 },
-        { name: 'source', type: 'text', label: 'Джерело', max: 100 },
       ],
       rules: { requireOneOf: ['name', 'email', 'phone'] },
     };
@@ -170,7 +166,6 @@ function buildDefaultSchemaForForm(formKey: string): PublicFormSchema {
       { name: 'email', type: 'email', label: 'Email', max: 255 },
       { name: 'phone', type: 'tel', label: 'Телефон', max: 30 },
       { name: 'message', type: 'textarea', label: 'Повідомлення', max: 2000 },
-      { name: 'source', type: 'text', label: 'Джерело', max: 100 },
     ],
     rules: { requireOneOf: ['name', 'email', 'phone'] },
   };
@@ -539,12 +534,15 @@ router.get('/forms/:projectSlug/:formKey/config', publicConfigLimiter, async (re
         }
       : buildDefaultSchemaForForm(publicForm.formKey);
 
+    const publicFields = (schema.fields || []).filter((f: any) => f && f.name && !['source','clientRequestId'].includes(String(f.name)));
+
+
     return res.json({
       formKey: publicForm.formKey,
       title: publicForm.title,
       isActive: publicForm.isActive,
       configVersion: schema.configVersion,
-      fields: schema.fields,
+      fields: publicFields,
       rules: schema.rules || {},
     });
   } catch (e) {
@@ -714,7 +712,7 @@ req.body = { ...(req.body || {}), ...(validated.data || {}) };
               title: 'Новий лід з сайту',
               description: message || null,
               status: 'new',
-              source: source || 'widget',
+              source: source || 'lead-widget',
             },
           });
 
