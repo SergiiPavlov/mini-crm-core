@@ -139,9 +139,17 @@
       .status.ok {
         color: #15803d;
       }
-      .tabs {
+      .tabs-row {
         margin-top: 16px;
         margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .tabs {
+        margin-top: 0;
+        margin-bottom: 0;
         display: inline-flex;
         border-radius: 999px;
         background: #e5e7eb;
@@ -595,11 +603,14 @@
 </div>
 
 <div class="card" id="data-card" style="margin-top: 16px; display:none;">
-          <div class="tabs">
-            <button class="tab-btn active" data-tab="cases">Звернення (Cases)</button>
-            <button class="tab-btn" data-tab="contacts">Контакти (Contacts)</button>
-            <button class="tab-btn" data-tab="transactions">Фінанси (Transactions)</button>
-            <button class="tab-btn" data-tab="integration">Integration</button>
+          <div class="tabs-row">
+            <div class="tabs">
+              <button class="tab-btn active" data-tab="cases">Звернення (Cases)</button>
+              <button class="tab-btn" data-tab="contacts">Контакти (Contacts)</button>
+              <button class="tab-btn" data-tab="transactions">Фінанси (Transactions)</button>
+              <button class="tab-btn" data-tab="integration">Integration</button>
+            </div>
+            <button type="button" class="btn btn-secondary" id="integration-preview-btn" disabled>Preview</button>
           </div>
 
           <div id="cases-view">
@@ -1833,6 +1844,8 @@ var dataCard = document.getElementById('data-card');
         var integrationCurlTextarea = document.getElementById('integration-curl');
         var copyCurlBtn = document.getElementById('copy-curl');
         var downloadTestHtmlBtn = document.getElementById('download-test-html');
+        var integrationPreviewBtn = document.getElementById('integration-preview-btn');
+
 
         
         // Integration: public forms quick controls
@@ -2215,6 +2228,11 @@ function acceptInviteAuthed(token) {
             })
             .then(function (data) {
               currentProject = data || null;
+              // Preview button: enable as soon as we know the current project
+              if (integrationPreviewBtn) {
+                var ok = !!(currentProject && currentProject.slug && currentProject.publicKey);
+                integrationPreviewBtn.disabled = !ok;
+              }
               return currentProject;
             });
         }
@@ -3761,6 +3779,7 @@ return (
               if (integrationProjectKeyInput) integrationProjectKeyInput.value = p.publicKey;
               if (integrationSnippetsTextarea) integrationSnippetsTextarea.value = buildWidgetSnippets(p.slug, p.publicKey);
               if (integrationCurlTextarea) integrationCurlTextarea.value = buildCurlExamples(p.slug, p.publicKey);
+              if (integrationPreviewBtn) integrationPreviewBtn.disabled = false;
 
               renderOriginsTable(data.allowedOrigins || []);
               setOriginStatus('', false);
@@ -3829,6 +3848,43 @@ if (copyCurlBtn) {
               safeCopy(htmlText);
               alert('Cannot download file in this browser. HTML was copied to clipboard instead.');
             }
+          });
+        }
+
+        if (integrationPreviewBtn) {
+          integrationPreviewBtn.addEventListener('click', function () {
+            // Use already-known currentProject (available on the main screen)
+            // so user can open Preview without visiting Integration tab.
+            var p = currentProject || {};
+            var slug = (p && p.slug) ? String(p.slug) : (integrationProjectSlugInput ? integrationProjectSlugInput.value : '');
+            var key = (p && p.publicKey) ? String(p.publicKey) : (integrationProjectKeyInput ? integrationProjectKeyInput.value : '');
+
+            function openPreview() {
+              if (!slug || !key) {
+                alert('Project data is not loaded yet.');
+                return;
+              }
+              var url = apiBase + '/admin/preview.html?projectSlug=' + encodeURIComponent(slug) + '&projectKey=' + encodeURIComponent(key) + '&apiBase=' + encodeURIComponent(apiBase);
+              try {
+                window.open(url, '_blank', 'noopener,noreferrer');
+              } catch (e) {
+                window.location.href = url;
+              }
+            }
+
+            // If project isn't ready — try to load it once, then open.
+            if (!slug || !key) {
+              return loadCurrentProject().then(function () {
+                var pp = currentProject || {};
+                slug = (pp && pp.slug) ? String(pp.slug) : slug;
+                key = (pp && pp.publicKey) ? String(pp.publicKey) : key;
+                openPreview();
+              }).catch(function () {
+                openPreview();
+              });
+            }
+
+            openPreview();
           });
         }
 
@@ -4034,6 +4090,8 @@ tabs.forEach(function (btn) {
             if (contactsView) contactsView.style.display = 'none';
             if (transactionsView) transactionsView.style.display = 'none';
             if (integrationView) integrationView.style.display = 'none';
+
+            // Preview button is global (always visible) — no per-tab toggling.
 
             if (tab === 'cases') {
               if (casesView) casesView.style.display = '';

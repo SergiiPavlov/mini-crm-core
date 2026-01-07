@@ -324,6 +324,9 @@
     var buttonText = scriptEl.getAttribute('data-button-text') || 'Відкрити форму';
     var titleText = scriptEl.getAttribute('data-title') || '';
 
+    var demoAttr = scriptEl.getAttribute('data-demo');
+    var isDemo = (demoAttr === '1' || demoAttr === 'true' || demoAttr === 'yes');
+
     if (!projectSlug) {
       console.error('[mini-crm] data-project-slug is required for widget');
       return;
@@ -397,7 +400,30 @@
     });
 
     // Load config and enable button
-    jsonFetch(configUrl, { method: 'GET', headers: { 'X-Project-Key': projectKey } })
+    // IMPORTANT: do not send Authorization cross-origin.
+    // For /admin/preview.html (same-origin) we can attach the admin JWT to bypass strict allowlists.
+    var cfgHeaders = { 'X-Project-Key': projectKey };
+    try {
+      var sameOrigin = false;
+      try { sameOrigin = (new URL(apiBase)).origin === window.location.origin; } catch (e) { sameOrigin = false; }
+      if (sameOrigin) {
+        // Admin UI stores token under 'mini-crm-admin-token'. Keep backward compatibility with 'token'.
+        var t = null;
+        try {
+          if (window.localStorage) {
+            t = window.localStorage.getItem('mini-crm-admin-token') || window.localStorage.getItem('token') || null;
+          }
+          if (!t && window.sessionStorage) {
+            t = window.sessionStorage.getItem('mini-crm-admin-token') || window.sessionStorage.getItem('token') || null;
+          }
+        } catch (e) {
+          t = null;
+        }
+        if (t) cfgHeaders['Authorization'] = 'Bearer ' + t;
+      }
+    } catch (e) {}
+
+    jsonFetch(configUrl, { method: 'GET', headers: cfgHeaders })
       .then(function (cfg) {
         loadedCfg = cfg || null;
         // Convention: if isActive===false -> hide
@@ -468,7 +494,16 @@
         payload[k] = s;
       });
 
-      ui.submitBtn.disabled = true;
+            // Demo mode: do not send or persist data.
+      if (isDemo) {
+        try {
+          console.info('[mini-crm][demo] Submit blocked (no DB write). Payload:', payload);
+        } catch (e) {}
+        ui.setMessage('Демо-режим: дані не відправляються і не зберігаються.', false);
+        return;
+      }
+
+ui.submitBtn.disabled = true;
 
       var submitUrl = apiBase + '/public/forms/' + encodeURIComponent(projectSlug) + '/' + encodeURIComponent(formType);
       fetch(submitUrl, {

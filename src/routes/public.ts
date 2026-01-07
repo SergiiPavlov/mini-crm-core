@@ -1,6 +1,7 @@
 import express from 'express';
 import { z, ZodError } from 'zod';
 import rateLimit from 'express-rate-limit';
+import jwt from 'jsonwebtoken';
 import prisma from '../db/client';
 import { sendNotificationMail } from '../services/mailer';
 import { findOrCreateContact } from '../services/contacts';
@@ -38,6 +39,39 @@ const publicSubmitLimiter = rateLimit({
 function getHeader(req: any, name: string): string | undefined {
   const v = req.header(name);
   return v ? String(v).trim() : undefined;
+}
+
+function getJwtSecret(): string {
+  // Must match src/middleware/auth.ts
+  // NOTE: The admin UI uses the same JWT secret fallback.
+  return String(process.env.JWT_SECRET || 'dev-mini-crm-secret');
+}
+
+async function isAuthedMemberForProject(req: any, projectId: number): Promise<boolean> {
+  // Preview/Demo page is served from /admin and has access to the admin token in localStorage.
+  // We allow bypassing Origin/Referer allowlist ONLY when a valid admin JWT is presented.
+  const auth = getHeader(req, 'Authorization');
+  if (!auth) return false;
+  const m = auth.match(/^Bearer\s+(.+)$/i);
+  if (!m) return false;
+  const token = String(m[1] || '').trim();
+  if (!token) return false;
+
+  try {
+    const payload: any = jwt.verify(token, getJwtSecret());
+    const userId = Number(payload && payload.userId);
+    const tokenProjectId = Number(payload && payload.projectId);
+    if (!userId || !tokenProjectId) return false;
+    if (Number(projectId) !== tokenProjectId) return false;
+
+    const membership = await prisma.membership.findFirst({
+      where: { userId, projectId },
+      select: { id: true },
+    });
+    return !!membership;
+  } catch {
+    return false;
+  }
 }
 
 // NOTE: raw contact normalization is handled by contacts.service (emailNormalized/phoneNormalized).
@@ -275,6 +309,15 @@ async function requirePublicProject(
   });
 
   if (allowlist.length > 0) {
+    // Admin Preview bypass: if the request carries a valid admin JWT for this project,
+    // we allow it even when the project has a strict Origin/Referer allowlist.
+    // This enables /admin/preview.html to work on localhost and production without
+    // forcing localhost into the project allowlist.
+    const authedBypass = await isAuthedMemberForProject(req, project.id);
+    if (authedBypass) {
+      return project;
+    }
+
     const origin = getHeader(req, 'Origin');
     const referer = getHeader(req, 'Referer');
 
