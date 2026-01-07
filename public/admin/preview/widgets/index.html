@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Mini CRM · Widget Preview (Demo)</title>
+  <style>
+    :root { color-scheme: light; }
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;margin:0;background:#f6f7fb;}
+    .wrap{max-width:980px;margin:24px auto;padding:0 16px;}
+    h1{margin:0 0 8px 0;font-size:20px;}
+    p{margin:0 0 16px 0;color:#555;}
+    .note{background:#fff3cd;border:1px solid #ffeeba;border-radius:12px;padding:12px 14px;margin:0 0 16px 0;}
+    .note strong{display:block;margin-bottom:6px;}
+    .meta{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;font-size:13px;color:#666;}
+    .meta code{background:#f3f4f6;padding:2px 6px;border-radius:6px;}
+    section{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:16px;}
+    .err{background:#fde8e8;border:1px solid #fca5a5;border-radius:12px;padding:12px 14px;color:#7f1d1d;}
+    .btn{display:inline-block;border:1px solid #e5e7eb;background:#fff;padding:8px 10px;border-radius:10px;cursor:pointer;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="note">
+      <strong>Демо‑сторінка (Preview)</strong>
+      Це превʼю для перевірки вигляду віджетів. <b>Відправка даних вимкнена</b> (жодних кейсів/транзакцій не буде створено).
+      <div class="meta">
+        <div>API: <code id="m-api"></code></div>
+        <div>projectSlug: <code id="m-slug"></code></div>
+      </div>
+    </div>
+
+    <h1>Mini CRM · Preview widgets</h1>
+    <p>Якщо форми не відображаються — перевір allowlist origin для цього домену або правильність <code>projectSlug</code>/<code>publicKey</code>.</p>
+
+    <div id="err" class="err" style="display:none"></div>
+
+    <section>
+      <h3 style="margin:0 0 10px 0;">Lead</h3>
+      <div id="slot-lead"></div>
+    </section>
+    <section>
+      <h3 style="margin:0 0 10px 0;">Donation</h3>
+      <div id="slot-donation"></div>
+    </section>
+    <section>
+      <h3 style="margin:0 0 10px 0;">Booking</h3>
+      <div id="slot-booking"></div>
+    </section>
+    <section>
+      <h3 style="margin:0 0 10px 0;">Feedback</h3>
+      <div id="slot-feedback"></div>
+    </section>
+
+    <p style="color:#666;font-size:13px;">Підказка: цю сторінку зручно відкривати з адмінки через кнопку <b>Preview</b> у вкладці <b>Integration</b>.</p>
+  </div>
+
+  <script>
+    (function () {
+      function qs(name) {
+        var p = new URLSearchParams(location.search);
+        return (p.get(name) || '').trim();
+      }
+
+      var apiBase = qs('apiBase') || location.origin;
+      var slug = qs('slug');
+      var key = qs('key');
+
+      document.getElementById('m-api').textContent = apiBase;
+      document.getElementById('m-slug').textContent = slug || '(missing)';
+
+      if (!slug || !key) {
+        var err = document.getElementById('err');
+        err.style.display = 'block';
+        err.textContent = 'Missing slug/key. Open this page from Admin → Integration → Preview (it will pass slug & key automatically).';
+        return;
+      }
+
+      function mount(type, containerId) {
+        var c = document.getElementById(containerId);
+        if (!c) return;
+
+        // Use legacy thin-wrappers for backward compatibility.
+        var s = document.createElement('script');
+        s.src = apiBase + '/widget/' + type + '-form.js';
+        s.dataset.projectSlug = slug;
+        s.dataset.projectKey = key;
+        s.dataset.apiBase = apiBase;
+        s.dataset.demo = '1';
+        c.appendChild(s);
+      }
+
+      mount('lead', 'slot-lead');
+      mount('donation', 'slot-donation');
+      mount('booking', 'slot-booking');
+      mount('feedback', 'slot-feedback');
+    })();
+  </script>
+</body>
+</html>

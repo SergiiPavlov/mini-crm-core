@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="uk">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Mini CRM · Preview widgets (view-only)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;margin:24px;background:#f6f7fb;}
+    h1{margin:0 0 12px 0;font-size:20px;}
+    p{margin:0 0 18px 0;color:#555;}
+    section{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:16px;}
+    code{background:#f3f4f6;padding:2px 6px;border-radius:6px;}
+    .note{max-width:980px;margin:16px auto;padding:12px 14px;background:#fff3cd;border:1px solid #ffeeba;border-radius:10px;}
+    .wrap{max-width:980px;margin:0 auto;}
+    .muted{color:#6b7280;font-size:13px;margin-top:10px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="note">
+      <strong>Демо-сторінка (Preview):</strong>
+      це лише перегляд вигляду віджетів. <strong>Відправка даних вимкнена</strong> — жодних кейсів/транзакцій не буде створено.
+      <div class="muted">Якщо віджети не відображаються — перевір allowlist origin для цього домену або правильність slug/publicKey.</div>
+    </div>
+
+    <h1>Mini CRM · Preview widgets</h1>
+    <p>API base: <code id="apiBase"></code> · projectSlug: <code id="slug"></code></p>
+
+    <section><h3 style="margin:0 0 10px 0;">Lead</h3><div id="w-lead"></div></section>
+    <section><h3 style="margin:0 0 10px 0;">Donation</h3><div id="w-donation"></div></section>
+    <section><h3 style="margin:0 0 10px 0;">Booking</h3><div id="w-booking"></div></section>
+    <section><h3 style="margin:0 0 10px 0;">Feedback</h3><div id="w-feedback"></div></section>
+
+    <p class="muted">Підказка: цю сторінку зручно відкривати з адмінки через кнопку <strong>Preview</strong> (на головній панелі).</p>
+  </div>
+
+  <script>
+    (function(){
+      const params = new URLSearchParams(location.search);
+      const slug = params.get('slug') || '';
+      const key  = params.get('key')  || '';
+      const apiBase = params.get('apiBase') || location.origin;
+
+      document.getElementById('apiBase').textContent = apiBase;
+      document.getElementById('slug').textContent = slug || '(not set)';
+
+      if(!slug || !key){
+        console.warn('[mini-crm] Preview page missing slug/key. Open from Admin → Preview.');
+        return;
+      }
+
+      function inject(containerId, formKey){
+        const s = document.createElement('script');
+        s.src = apiBase.replace(/\/$/,'') + '/widget/' + formKey + '-form.js';
+        s.async = true;
+        s.setAttribute('data-project-slug', slug);
+        s.setAttribute('data-project-key', key);
+        s.setAttribute('data-demo', '1'); // view-only: no submit to DB
+        document.getElementById(containerId).appendChild(s);
+      }
+
+      inject('w-lead','lead');
+      inject('w-donation','donation');
+      inject('w-booking','booking');
+      inject('w-feedback','feedback');
+    })();
+  </script>
+</body>
+</html>

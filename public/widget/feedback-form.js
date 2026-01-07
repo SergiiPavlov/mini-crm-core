@@ -12,8 +12,8 @@
   var legacyScript = getCurrentScript();
   if (!legacyScript) return;
 
-  // Avoid double-loading if someone already included widget.js manually.
-  if (window.__MINI_CRM_WIDGET_LOADED__) return;
+  // If widget.js is already loaded, we still need to initialize a widget instance for this embed.
+  // We do that by injecting another <script src="/widget/widget.js">; the browser will serve it from cache.
 
   var widgetUrl = new URL('./widget.js', legacyScript.src).toString();
   var s = document.createElement('script');
@@ -25,6 +25,7 @@
   if (ds.projectSlug) s.dataset.projectSlug = ds.projectSlug;
   if (ds.projectKey) s.dataset.projectKey = ds.projectKey;
   if (ds.apiBase) s.dataset.apiBase = ds.apiBase;
+  if (ds.demo) s.dataset.demo = ds.demo;
 
   // Back-compat: allow old embeds that used data-project / data-key
   if (!s.dataset.projectSlug && ds.project) s.dataset.projectSlug = ds.project;
